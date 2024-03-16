@@ -10,6 +10,9 @@ nalgebra = { version = "0.32.3", features = ["convert-glam024"] }
 sefirot = { path = "../sefirot/sefirot", features = ["bevy"] }
 sefirot_grid = { path = "../sefirot/sefirot_grid" }
 bevy_sefirot = { path = "../sefirot/bevy_sefirot", features = ["display"] }
+id_newtype = { path = "../sefirot/id_newtype" }
+morton = "0.3.0"
+rayon = "1.9.0"
 
 [dependencies.luisa_compute]
 git = "https://github.com/iMplode-nZ/luisa-compute-rs"
@@ -24,3 +27,6 @@ features = ["bevy_winit", "x11"]
 [features]
 default = ["debug"]
 debug = ["bevy/dynamic_linking", "sefirot/debug", "bevy_sefirot/debug"]
+
+[profile.dev.package.backtrace]
+opt-level = 3

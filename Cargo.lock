@@ -1532,9 +1532,12 @@ dependencies = [
  "bevy",
  "bevy_sefirot",
  "color-eyre",
+ "id_newtype",
  "luisa_compute",
+ "morton",
  "nalgebra",
  "rapier2d",
+ "rayon",
  "sefirot",
  "sefirot_grid",
 ]
@@ -1564,7 +1567,7 @@ checksum = "90ed8c1e510134f979dbc4f070f87d4313098b704861a105fe34231c70a3901c"
 [[package]]
 name = "luisa_compute"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#92cfa275b2d649782a13fb9b1f507981c7e1bfe0"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#41d6a530bf98916fc08f467c095e0a5e45858184"
 dependencies = [
  "bumpalo",
  "env_logger",
@@ -1593,7 +1596,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_api_types"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#92cfa275b2d649782a13fb9b1f507981c7e1bfe0"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#41d6a530bf98916fc08f467c095e0a5e45858184"
 dependencies = [
  "bitflags 2.4.2",
  "cbindgen",
@@ -1603,7 +1606,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_backend"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#92cfa275b2d649782a13fb9b1f507981c7e1bfe0"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#41d6a530bf98916fc08f467c095e0a5e45858184"
 dependencies = [
  "lazy_static",
  "libc",
@@ -1619,7 +1622,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_derive"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#92cfa275b2d649782a13fb9b1f507981c7e1bfe0"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#41d6a530bf98916fc08f467c095e0a5e45858184"
 dependencies = [
  "luisa_compute_derive_impl",
  "syn 2.0.52",
@@ -1628,7 +1631,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_derive_impl"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#92cfa275b2d649782a13fb9b1f507981c7e1bfe0"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#41d6a530bf98916fc08f467c095e0a5e45858184"
 dependencies = [
  "prettyplease",
  "proc-macro2",
@@ -1639,7 +1642,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_ir"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#92cfa275b2d649782a13fb9b1f507981c7e1bfe0"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#41d6a530bf98916fc08f467c095e0a5e45858184"
 dependencies = [
  "base64ct",
  "bincode",
@@ -1661,7 +1664,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_sys"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#92cfa275b2d649782a13fb9b1f507981c7e1bfe0"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#41d6a530bf98916fc08f467c095e0a5e45858184"
 dependencies = [
  "cmake",
 ]
@@ -1669,7 +1672,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_track"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#92cfa275b2d649782a13fb9b1f507981c7e1bfe0"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#41d6a530bf98916fc08f467c095e0a5e45858184"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -1719,6 +1722,12 @@ checksum = "9d811f3e15f28568be3407c8e7fdb6514c1cda3cb30683f15b6a1a1dc4ea14a7"
 dependencies = [
  "adler",
 ]
+
+[[package]]
+name = "morton"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1d3cd4a99a2db84e0a0e72601be5fb749a44d09b1bdec42bd86beda804c189c"
 
 [[package]]
 name = "nalgebra"
@@ -3007,9 +3016,9 @@ dependencies = [
 
 [[package]]
 name = "web-sys"
-version = "0.3.67"
+version = "0.3.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58cd2333b6e0be7a39605f0e255892fd7418a682d8da8fe042fe25128794d2ed"
+checksum = "77afa9a11836342370f4817622a2f0f418b134426d91a82dfb48f532d2ec13ef"
 dependencies = [
  "js-sys",
  "wasm-bindgen",

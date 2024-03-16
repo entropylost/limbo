@@ -15,8 +15,9 @@ impl FromWorld for RenderGraph {
 // May also want to have smooth moving.
 #[kernel]
 fn upscale_colors(device: Res<Device>, fields: Res<RenderFields>) -> Kernel<fn()> {
-    Kernel::build(&device, fields.screen_domain, &|mut el| {
-        let mut world_el = fields.domain.index(*el / fields.upscale_factor, &el);
+    Kernel::build(&device, &fields.screen_domain, &|mut el| {
+        let pos = *el / fields.upscale_factor;
+        let mut world_el = fields.domain.index(Vec2::expr(pos.x, 127 - pos.y), &el);
         let color = world_el.expr(&fields.color);
         *el.var(&fields.screen_color) = color;
     })
@@ -24,7 +25,7 @@ fn upscale_colors(device: Res<Device>, fields: Res<RenderFields>) -> Kernel<fn()
 
 #[kernel]
 fn linearize_colors(device: Res<Device>, fields: Res<RenderFields>) -> Kernel<fn()> {
-    Kernel::build(&device, fields.screen_domain, &|mut el| {
+    Kernel::build(&device, &fields.screen_domain, &|mut el| {
         let color = el.expr(&fields.screen_color);
         let color = color.powf(1.0 / fields.gamma);
         *el.var(&fields.final_color) = color.extend(1.0);
@@ -72,14 +73,14 @@ fn setup_fields(
     );
     let final_color = display.color;
     commands.insert_resource(RenderFields {
-        fields,
         domain,
         screen_domain,
-        upscale_factor,
-        gamma: plugin.gamma,
         color,
         screen_color,
         final_color,
+        _fields: fields,
+        upscale_factor,
+        gamma: plugin.gamma,
     })
 }
 
@@ -108,15 +109,15 @@ impl Plugin for RenderPlugin {
 }
 #[derive(Resource)]
 pub struct RenderFields {
-    pub fields: FieldSet,
     pub domain: StaticDomain<2>,
     pub screen_domain: StaticDomain<2>,
-    pub upscale_factor: u32,
-    pub gamma: f32,
     // In world-space, so it'll be upscaled.
     pub color: VField<Vec3<f32>, Vec2<u32>>,
     pub screen_color: VField<Vec3<f32>, Vec2<u32>>,
     // After non-linear color correction.
     // TODO: If using a bevy texture, this may not be necessary.
     final_color: VField<Vec4<f32>, Vec2<u32>>,
+    _fields: FieldSet,
+    pub upscale_factor: u32,
+    pub gamma: f32,
 }
