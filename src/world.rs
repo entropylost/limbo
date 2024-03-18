@@ -4,6 +4,9 @@ use sefirot_grid::GridDomain;
 
 use crate::prelude::*;
 
+pub mod imf;
+pub mod physics;
+
 #[derive(
     ScheduleLabel, Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect,
 )]
@@ -71,7 +74,7 @@ pub struct World {
 
 impl FromWorld for World {
     fn from_world(_world: &mut BevyWorld) -> Self {
-        let domain = GridDomain::new([-64, -64], [256, 256]);
+        let domain = GridDomain::new([-64, -64], [256, 256]).with_morton();
         World { domain }
     }
 }

@@ -124,10 +124,7 @@ fn setup_physics(mut commands: Commands, device: Res<Device>, world: Res<World>)
     };
     let mut fields = FieldSet::new();
     let object_buffer = device.create_buffer(256 * 256);
-    let object = *fields.create_bind(
-        "physics-objects",
-        world.map_buffer_morton(object_buffer.view(..)),
-    );
+    let object = *fields.create_bind("physics-objects", world.map_buffer(object_buffer.view(..)));
     let velocity = fields.create_bind("physics-velocity", world.create_texture(&device));
 
     let physics = PhysicsFields {

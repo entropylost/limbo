@@ -3,19 +3,18 @@ use bevy::prelude::*;
 use bevy::window::WindowMode;
 use bevy_sefirot::display::DisplayPlugin;
 use bevy_sefirot::prelude::*;
-use imf::ImfPlugin;
 use nalgebra::Vector2;
-use physics::{PhysicsPlugin, RigidBodyContext};
 use rapier2d::dynamics::{RigidBodyBuilder, RigidBodyHandle};
 use rapier2d::geometry::ColliderBuilder;
-use render::debug::DebugPlugin;
-use render::dither::DitherPlugin;
-use render::light::{LightConstants, LightParameters, LightPlugin};
-use render::{RenderParameters, RenderPlugin};
-use world::WorldPlugin;
 
-mod imf;
-mod physics;
+use crate::render::debug::DebugPlugin;
+use crate::render::dither::DitherPlugin;
+use crate::render::light::{LightConstants, LightParameters, LightPlugin};
+use crate::render::{RenderParameters, RenderPlugin};
+use crate::world::imf::ImfPlugin;
+use crate::world::physics::{PhysicsPlugin, RigidBodyContext};
+use crate::world::WorldPlugin;
+
 mod prelude;
 mod render;
 pub mod utils;
@@ -112,15 +111,18 @@ pub struct ActivePlayer;
 
 fn update_viewport(
     mut render_parameters: ResMut<RenderParameters>,
-    light_constants: Res<LightConstants>,
-    mut light_parameters: ResMut<LightParameters>,
+    light_constants: Option<Res<LightConstants>>,
+    light_parameters: Option<ResMut<LightParameters>>,
     rb_context: Res<RigidBodyContext>,
     players: Query<&Player, With<ActivePlayer>>,
 ) {
     let player = players.single();
     let position = rb_context.bodies[player.body].translation();
     render_parameters.view_center = *position;
-    light_parameters.set_center(&light_constants, Vector2::repeat(64)); // position.map(|x| x.round() as i32)
+    if let Some(mut lp) = light_parameters {
+        lp.set_center(&light_constants.unwrap(), Vector2::repeat(64));
+        // position.map(|x| x.round() as i32)
+    }
 }
 
 fn setup(mut commands: Commands, mut rb_context: ResMut<RigidBodyContext>) {

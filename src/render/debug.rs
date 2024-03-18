@@ -1,7 +1,7 @@
 use super::prelude::*;
-use crate::imf::{ImfFields, IMF_CAP};
-use crate::physics::{PhysicsFields, NULL_OBJECT};
 pub use crate::prelude::*;
+use crate::world::imf::{ImfFields, IMF_CAP};
+use crate::world::physics::{PhysicsFields, NULL_OBJECT};
 
 #[kernel]
 fn color_kernel(

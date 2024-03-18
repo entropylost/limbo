@@ -5,9 +5,9 @@ use luisa::lang::types::shared::Shared;
 use sefirot::mapping::buffer::StaticDomain;
 
 use super::prelude::*;
-use crate::physics::{PhysicsFields, NULL_OBJECT};
 pub use crate::prelude::*;
 use crate::utils::rand_f32;
+use crate::world::physics::{PhysicsFields, NULL_OBJECT};
 
 #[derive(Resource)]
 pub struct LightFields {

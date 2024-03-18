@@ -29,3 +29,6 @@ debug = ["bevy/dynamic_linking", "sefirot/debug", "bevy_sefirot/debug"]
 
 [profile.dev.package.backtrace]
 opt-level = 3
+
+[patch.crates-io]
+bevy = { git = "https://github.com/bevyengine/bevy", branch = "release-0.13.1" }

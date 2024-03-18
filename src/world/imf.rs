@@ -1,5 +1,5 @@
-use crate::physics::PhysicsFields;
 use crate::prelude::*;
+use crate::world::physics::PhysicsFields;
 
 pub const IMF_CAP: u32 = 2048;
 
@@ -15,10 +15,10 @@ pub struct ImfFields {
 fn setup_imf(mut commands: Commands, device: Res<Device>, world: Res<World>) {
     let mut fields = FieldSet::new();
     let imf = ImfFields {
-        value: fields.create_bind("imf-value", world.create_buffer_morton(&device)),
-        next_value: fields.create_bind("imf-value", world.create_buffer_morton(&device)),
+        value: fields.create_bind("imf-value", world.create_buffer(&device)),
+        next_value: fields.create_bind("imf-value", world.create_buffer(&device)),
         out: fields.create_bind("imf-out", world.create_texture(&device)),
-        valid: *fields.create_bind("imf-valid", world.create_buffer_morton(&device)),
+        valid: *fields.create_bind("imf-valid", world.create_buffer(&device)),
         _fields: fields,
     };
     commands.insert_resource(imf);
