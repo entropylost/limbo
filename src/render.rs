@@ -6,7 +6,14 @@ use sefirot::mapping::buffer::StaticDomain;
 use crate::prelude::*;
 
 pub mod debug;
+pub mod dither;
 pub mod light;
+
+pub mod prelude {
+    pub use super::{
+        add_render, Render, RenderConstants, RenderFields, RenderParameters, RenderPhase,
+    };
+}
 
 #[derive(
     ScheduleLabel, Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect,
@@ -63,12 +70,22 @@ fn delinearize_kernel(
     constants: Res<RenderConstants>,
 ) -> Kernel<fn()> {
     Kernel::build(&device, &fields.screen_domain, &|el| {
-        let color = fields.screen_color.expr(&el);
-        let color = color.powf(1.0 / constants.gamma);
-        *fields.final_color.var(&el) = color.extend(1.0);
+        *fields.screen_color.var(&el) = fields.screen_color.expr(&el).powf(1.0 / constants.gamma);
     })
 }
+fn delinearize() -> impl AsNodes {
+    delinearize_kernel.dispatch()
+}
 
+#[kernel]
+fn finalize_kernel(device: Res<Device>, fields: Res<RenderFields>) -> Kernel<fn()> {
+    Kernel::build(&device, &fields.screen_domain, &|el| {
+        *fields.final_color.var(&el) = fields.screen_color.expr(&el).extend(1.0);
+    })
+}
+fn finalize() -> impl AsNodes {
+    finalize_kernel.dispatch()
+}
 fn upscale(
     constants: Res<RenderConstants>,
     parameters: Res<RenderParameters>,
@@ -83,10 +100,6 @@ fn upscale(
         .try_cast::<u32>()
         .unwrap();
     upscale_kernel.dispatch(&Vec2::from(start_integral), &Vec2::from(offset))
-}
-
-fn postprocess_delinearize() -> impl AsNodes {
-    delinearize_kernel.dispatch()
 }
 
 #[derive(Default, Resource, Debug, Clone, Copy)]
@@ -171,22 +184,27 @@ impl Plugin for RenderPlugin {
                 )
                     .chain(),
             )
-            .add_systems(Startup, utils::init::<RenderGraph>)
+            .add_systems(Startup, init_resource::<RenderGraph>)
             .add_systems(Startup, setup_fields.after(setup_display))
-            .add_systems(InitKernel, (init_upscale_kernel, init_delinearize_kernel))
+            .add_systems(
+                InitKernel,
+                (
+                    init_upscale_kernel,
+                    init_delinearize_kernel,
+                    init_finalize_kernel,
+                ),
+            )
             .add_systems(
                 Render,
                 (
                     add_render(upscale).in_set(RenderPhase::Upscale),
-                    add_render(postprocess_delinearize).in_set(RenderPhase::Postprocess),
+                    add_render(delinearize).in_set(RenderPhase::Postprocess),
+                    add_render(finalize).in_set(RenderPhase::Finalize),
                 ),
             )
             .add_systems(
                 PostUpdate,
-                (
-                    utils::run_schedule(Render),
-                    utils::execute_graph::<RenderGraph>,
-                )
+                (run_schedule(Render), execute_graph::<RenderGraph>)
                     .chain()
                     .after(present_swapchain),
             );

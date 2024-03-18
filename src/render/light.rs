@@ -4,8 +4,9 @@ use luisa::lang::functions::sync_block;
 use luisa::lang::types::shared::Shared;
 use sefirot::mapping::buffer::StaticDomain;
 
-use super::*;
+use super::prelude::*;
 use crate::physics::{PhysicsFields, NULL_OBJECT};
+pub use crate::prelude::*;
 use crate::utils::rand_f32;
 
 #[derive(Resource)]
@@ -57,13 +58,16 @@ fn setup_fields(mut commands: Commands, device: Res<Device>, constants: Res<Ligh
 #[kernel]
 fn wall_kernel(
     device: Res<Device>,
+    world: Res<World>,
     light: Res<LightFields>,
     physics: Res<PhysicsFields>,
 ) -> Kernel<fn(Vec2<i32>)> {
     Kernel::build(&device, &light.domain, &|el, offset| {
         let world_el = el.at(el.cast_i32() + offset);
-        let wall = physics.object.expr(&world_el) != NULL_OBJECT;
-        *light.wall.var(&el) = wall.cast::<u32>();
+        if world.contains(&world_el) {
+            let wall = physics.object.expr(&world_el) != NULL_OBJECT;
+            *light.wall.var(&el) = wall.cast::<u32>();
+        }
     })
 }
 
@@ -155,6 +159,7 @@ fn trace_kernel(
 #[kernel]
 fn accumulate_kernel(
     device: Res<Device>,
+    world: Res<World>,
     light: Res<LightFields>,
     constants: Res<LightConstants>,
     render: Res<RenderFields>,
@@ -164,18 +169,16 @@ fn accumulate_kernel(
         for dir in 0..constants.directions {
             *radiance += light.radiance.expr(&el.at(el.extend(dir)));
         }
-        *render.color.var(&el.at(el.cast_i32() + offset)) = radiance;
+        let world_el = el.at(el.cast_i32() + offset);
+        if world.contains(&world_el) {
+            *render.color.var(&world_el) = radiance;
+        }
     })
 }
 
-fn color(
-    parameters: Res<LightParameters>,
-    constants: Res<LightConstants>,
-    mut time: Local<u32>,
-) -> impl AsNodes {
+fn color(parameters: Res<LightParameters>, mut time: Local<u32>) -> impl AsNodes {
     *time = time.wrapping_add(1);
-    let offset =
-        Vec2::from(parameters.light_center - Vector2::repeat(constants.trace_size as i32 / 2));
+    let offset = Vec2::from(parameters.offset);
     (
         wall_kernel.dispatch(&offset),
         trace_kernel.dispatch(&*time),
@@ -213,13 +216,18 @@ impl Default for LightConstants {
 
 #[derive(Resource, Copy, Clone)]
 pub struct LightParameters {
-    pub light_center: Vector2<i32>,
+    pub offset: Vector2<i32>,
 }
 impl Default for LightParameters {
     fn default() -> Self {
         Self {
-            light_center: Vector2::new(0, 0),
+            offset: Vector2::new(0, 0),
         }
+    }
+}
+impl LightParameters {
+    pub fn set_center(&mut self, constants: &LightConstants, center: Vector2<i32>) {
+        self.offset = center - Vector2::repeat(constants.trace_size as i32 / 2);
     }
 }
 

@@ -71,7 +71,7 @@ pub struct World {
 
 impl FromWorld for World {
     fn from_world(_world: &mut BevyWorld) -> Self {
-        let domain = GridDomain::new_wrapping([-64, -64], [256, 256]);
+        let domain = GridDomain::new([-64, -64], [256, 256]);
         World { domain }
     }
 }
@@ -108,14 +108,11 @@ impl Plugin for WorldPlugin {
             )
             .add_systems(
                 Startup,
-                (utils::init::<InitGraph>, utils::init::<UpdateGraph>),
+                (init_resource::<InitGraph>, init_resource::<UpdateGraph>),
             )
             .add_systems(
                 PreUpdate,
-                (
-                    utils::run_schedule(WorldInit),
-                    utils::execute_graph::<InitGraph>,
-                )
+                (run_schedule(WorldInit), execute_graph::<InitGraph>)
                     .chain()
                     .run_if(run_once()),
             )
@@ -123,11 +120,8 @@ impl Plugin for WorldPlugin {
                 Update,
                 (
                     (
-                        utils::run_schedule(WorldUpdate),
-                        (
-                            utils::execute_graph::<UpdateGraph>,
-                            utils::run_schedule(HostUpdate),
-                        ),
+                        run_schedule(WorldUpdate),
+                        (execute_graph::<UpdateGraph>, run_schedule(HostUpdate)),
                     )
                         .chain()
                         .run_if(in_state(WorldState::Running)),

@@ -22,7 +22,7 @@ pub fn run_schedule(label: impl ScheduleLabel + Copy) -> impl FnMut(&mut BevyWor
     }
 }
 
-pub fn init<T: Resource + FromWorld>(mut commands: Commands) {
+pub fn init_resource<T: Resource + FromWorld>(mut commands: Commands) {
     commands.init_resource::<T>();
 }
 

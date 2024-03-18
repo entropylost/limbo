@@ -9,7 +9,8 @@ use physics::{PhysicsPlugin, RigidBodyContext};
 use rapier2d::dynamics::{RigidBodyBuilder, RigidBodyHandle};
 use rapier2d::geometry::ColliderBuilder;
 use render::debug::DebugPlugin;
-use render::light::{LightParameters, LightPlugin};
+use render::dither::DitherPlugin;
+use render::light::{LightConstants, LightParameters, LightPlugin};
 use render::{RenderParameters, RenderPlugin};
 use world::WorldPlugin;
 
@@ -64,6 +65,7 @@ fn main() {
         .add_plugins(PhysicsPlugin)
         .add_plugins(ImfPlugin)
         .add_plugins(RenderPlugin::default())
+        .add_plugins(DitherPlugin)
         .add_plugins(LightPlugin)
         .add_systems(Startup, setup)
         .add_systems(PreUpdate, (apply_player_force, update_viewport).chain())
@@ -110,6 +112,7 @@ pub struct ActivePlayer;
 
 fn update_viewport(
     mut render_parameters: ResMut<RenderParameters>,
+    light_constants: Res<LightConstants>,
     mut light_parameters: ResMut<LightParameters>,
     rb_context: Res<RigidBodyContext>,
     players: Query<&Player, With<ActivePlayer>>,
@@ -117,7 +120,7 @@ fn update_viewport(
     let player = players.single();
     let position = rb_context.bodies[player.body].translation();
     render_parameters.view_center = *position;
-    light_parameters.light_center = position.map(|x| x.round() as i32);
+    light_parameters.set_center(&light_constants, Vector2::repeat(64)); // position.map(|x| x.round() as i32)
 }
 
 fn setup(mut commands: Commands, mut rb_context: ResMut<RigidBodyContext>) {
