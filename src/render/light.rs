@@ -125,8 +125,6 @@ fn trace_kernel(
             shared.write(trace_size + 1, radiance);
         }
 
-        let last_wall = false.var();
-
         for _i in 0.expr()..trace_length.cast_u32() {
             let si = index + 1;
             shared.write(si, radiance);
@@ -138,7 +136,7 @@ fn trace_kernel(
             *side_dist += mask.select(delta_dist, Vec2::splat_expr(0.0));
             *pos += mask.select(step, Vec2::splat_expr(0));
 
-            if pos.x < 0 || pos.x >= grid_size as i32 || pos.y < 0 || pos.y >= grid_size as i32 {
+            if pos.x < 0 || pos.y < 0 || pos.y >= grid_size as i32 {
                 continue;
             }
 
@@ -148,7 +146,6 @@ fn trace_kernel(
             if wall {
                 *radiance = Vec3::splat(0.0); // wall / directions as f32;
             }
-            *last_wall = wall;
 
             *light.radiance.var(&el.at(pos.extend(dir))) = radiance;
         }
@@ -171,9 +168,14 @@ fn accumulate_kernel(
     })
 }
 
-fn color(parameters: Res<LightParameters>, mut time: Local<u32>) -> impl AsNodes {
+fn color(
+    parameters: Res<LightParameters>,
+    constants: Res<LightConstants>,
+    mut time: Local<u32>,
+) -> impl AsNodes {
     *time = time.wrapping_add(1);
-    let offset = Vec2::from(parameters.offset);
+    let offset =
+        Vec2::from(parameters.light_center - Vector2::repeat(constants.trace_size as i32 / 2));
     (
         wall_kernel.dispatch(&offset),
         trace_kernel.dispatch(&*time),
@@ -193,7 +195,7 @@ impl Default for LightConstants {
     fn default() -> Self {
         let directions = 64;
         Self {
-            trace_size: 128,
+            trace_size: 256,
             directions,
             blur: 0.3,
             skylight: (0..directions)
@@ -201,7 +203,7 @@ impl Default for LightConstants {
                     let angle = (dir as f32 * TAU) / directions as f32;
                     let norm = (-angle.sin()).max(0.0) * (-angle.sin()).max(0.0);
                     let sun: f32 = if dir == 53 { 1.0 } else { 0.0 };
-                    Vector3::new(0.3, 0.7, 1.0) * norm * 0.005
+                    Vector3::new(0.3, 0.7, 1.0) * norm * 0.3 / directions as f32
                         + sun * Vector3::new(1.0, 1.0, 0.8) * 0.1
                 })
                 .collect::<Vec<_>>(),
@@ -211,12 +213,12 @@ impl Default for LightConstants {
 
 #[derive(Resource, Copy, Clone)]
 pub struct LightParameters {
-    offset: Vector2<i32>,
+    pub light_center: Vector2<i32>,
 }
 impl Default for LightParameters {
     fn default() -> Self {
         Self {
-            offset: Vector2::new(0, 0),
+            light_center: Vector2::new(0, 0),
         }
     }
 }

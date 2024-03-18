@@ -8,7 +8,8 @@ use nalgebra::Vector2;
 use physics::{PhysicsPlugin, RigidBodyContext};
 use rapier2d::dynamics::{RigidBodyBuilder, RigidBodyHandle};
 use rapier2d::geometry::ColliderBuilder;
-use render::light::LightPlugin;
+use render::debug::DebugPlugin;
+use render::light::{LightParameters, LightPlugin};
 use render::{RenderParameters, RenderPlugin};
 use world::WorldPlugin;
 
@@ -95,7 +96,7 @@ fn apply_player_force(
             force.y -= 1.0;
         }
         if force.norm() > 0.0 {
-            let force = force.normalize() * 5.0;
+            let force = force.normalize() * 30.0;
             player.apply_impulse(force, true);
         }
         if input.pressed(KeyCode::Space) {
@@ -109,12 +110,14 @@ pub struct ActivePlayer;
 
 fn update_viewport(
     mut render_parameters: ResMut<RenderParameters>,
+    mut light_parameters: ResMut<LightParameters>,
     rb_context: Res<RigidBodyContext>,
     players: Query<&Player, With<ActivePlayer>>,
 ) {
     let player = players.single();
     let position = rb_context.bodies[player.body].translation();
     render_parameters.view_center = *position;
+    light_parameters.light_center = position.map(|x| x.round() as i32);
 }
 
 fn setup(mut commands: Commands, mut rb_context: ResMut<RigidBodyContext>) {
