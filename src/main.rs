@@ -1,6 +1,6 @@
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::prelude::*;
-use bevy::window::WindowResolution;
+use bevy::window::WindowMode;
 use bevy_sefirot::display::DisplayPlugin;
 use bevy_sefirot::prelude::*;
 use imf::ImfPlugin;
@@ -8,7 +8,7 @@ use nalgebra::Vector2;
 use physics::{PhysicsPlugin, RigidBodyContext};
 use rapier2d::dynamics::{RigidBodyBuilder, RigidBodyHandle};
 use rapier2d::geometry::ColliderBuilder;
-use render::debug::DebugPlugin;
+use render::light::LightPlugin;
 use render::{RenderParameters, RenderPlugin};
 use world::WorldPlugin;
 
@@ -48,7 +48,7 @@ fn main() {
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 resizable: false,
-                resolution: WindowResolution::new(1024.0, 1024.0),
+                mode: WindowMode::BorderlessFullscreen,
                 ..default()
             }),
             ..default()
@@ -63,7 +63,7 @@ fn main() {
         .add_plugins(PhysicsPlugin)
         .add_plugins(ImfPlugin)
         .add_plugins(RenderPlugin::default())
-        .add_plugins(DebugPlugin)
+        .add_plugins(LightPlugin)
         .add_systems(Startup, setup)
         .add_systems(PreUpdate, (apply_player_force, update_viewport).chain())
         .run();
@@ -119,7 +119,7 @@ fn update_viewport(
 
 fn setup(mut commands: Commands, mut rb_context: ResMut<RigidBodyContext>) {
     let body = RigidBodyBuilder::fixed()
-        .translation(Vector2::new(64.0, 10.0))
+        .translation(Vector2::new(64.0, 20.0))
         .build();
     let collider = ColliderBuilder::cuboid(50.0, 6.0).build();
     rb_context.insert2(body, collider);
@@ -127,7 +127,7 @@ fn setup(mut commands: Commands, mut rb_context: ResMut<RigidBodyContext>) {
         .translation(Vector2::new(64.0, 64.0))
         .lock_rotations()
         .build();
-    let player_collider = ColliderBuilder::cuboid(2.0, 3.0).build();
+    let player_collider = ColliderBuilder::cuboid(5.0, 5.0).build();
     let player = rb_context.insert2(player, player_collider);
     commands.spawn((Player { body: player }, ActivePlayer));
 }
