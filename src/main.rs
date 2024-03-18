@@ -8,7 +8,7 @@ use nalgebra::Vector2;
 use physics::{PhysicsPlugin, RigidBodyContext};
 use rapier2d::dynamics::{RigidBodyBuilder, RigidBodyHandle};
 use rapier2d::geometry::ColliderBuilder;
-use render::light::LightPlugin;
+use render::debug::DebugPlugin;
 use render::{RenderParameters, RenderPlugin};
 use world::WorldPlugin;
 
@@ -16,6 +16,7 @@ mod imf;
 mod physics;
 mod prelude;
 mod render;
+pub mod utils;
 mod world;
 
 fn install_eyre() {
@@ -62,7 +63,7 @@ fn main() {
         .add_plugins(PhysicsPlugin)
         .add_plugins(ImfPlugin)
         .add_plugins(RenderPlugin::default())
-        .add_plugins(LightPlugin)
+        .add_plugins(DebugPlugin)
         .add_systems(Startup, setup)
         .add_systems(PreUpdate, (apply_player_force, update_viewport).chain())
         .run();

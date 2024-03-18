@@ -57,18 +57,6 @@ pub fn add_init<F: IntoSystem<I, N, M> + 'static, I: 'static, N: AsNodes + 'stat
     MirrorGraph::add_node::<InitGraph, F, I, N, M>(f)
 }
 
-fn init_world_system(world: &mut BevyWorld) {
-    world.init_resource::<InitGraph>();
-    world.run_schedule(WorldInit);
-    world.resource_mut::<InitGraph>().execute_init();
-}
-fn update_world_system(world: &mut BevyWorld) {
-    world.init_resource::<UpdateGraph>();
-    world.run_schedule(WorldUpdate);
-    world.resource_mut::<UpdateGraph>().execute_init();
-    world.run_schedule(HostUpdate);
-}
-
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum UpdatePhase {
     CopyBodiesFromHost,
@@ -118,11 +106,31 @@ impl Plugin for WorldPlugin {
                 )
                     .chain(),
             )
-            .add_systems(PreUpdate, init_world_system.run_if(run_once()))
+            .add_systems(
+                Startup,
+                (utils::init::<InitGraph>, utils::init::<UpdateGraph>),
+            )
+            .add_systems(
+                PreUpdate,
+                (
+                    utils::run_schedule(WorldInit),
+                    utils::execute_graph::<InitGraph>,
+                )
+                    .chain()
+                    .run_if(run_once()),
+            )
             .add_systems(
                 Update,
                 (
-                    update_world_system.run_if(in_state(WorldState::Running)),
+                    (
+                        utils::run_schedule(WorldUpdate),
+                        (
+                            utils::execute_graph::<UpdateGraph>,
+                            utils::run_schedule(HostUpdate),
+                        ),
+                    )
+                        .chain()
+                        .run_if(in_state(WorldState::Running)),
                     pause_system,
                 )
                     .chain(),

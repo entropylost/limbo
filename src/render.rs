@@ -5,6 +5,7 @@ use sefirot::mapping::buffer::StaticDomain;
 
 use crate::prelude::*;
 
+pub mod debug;
 pub mod light;
 
 #[derive(
@@ -29,12 +30,6 @@ pub fn add_render<
     f: F,
 ) -> impl System<In = I, Out = ()> {
     MirrorGraph::add_node::<RenderGraph, F, I, N, M>(f)
-}
-
-fn update_render_system(world: &mut BevyWorld) {
-    world.init_resource::<RenderGraph>();
-    world.run_schedule(Render);
-    world.resource_mut::<RenderGraph>().execute_init();
 }
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -176,6 +171,7 @@ impl Plugin for RenderPlugin {
                 )
                     .chain(),
             )
+            .add_systems(Startup, utils::init::<RenderGraph>)
             .add_systems(Startup, setup_fields.after(setup_display))
             .add_systems(InitKernel, (init_upscale_kernel, init_delinearize_kernel))
             .add_systems(
@@ -185,6 +181,14 @@ impl Plugin for RenderPlugin {
                     add_render(postprocess_delinearize).in_set(RenderPhase::Postprocess),
                 ),
             )
-            .add_systems(PostUpdate, update_render_system.after(present_swapchain));
+            .add_systems(
+                PostUpdate,
+                (
+                    utils::run_schedule(Render),
+                    utils::execute_graph::<RenderGraph>,
+                )
+                    .chain()
+                    .after(present_swapchain),
+            );
     }
 }

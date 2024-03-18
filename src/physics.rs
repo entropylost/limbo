@@ -1,6 +1,6 @@
 use bevy::utils::HashMap;
 use id_newtype::UniqueId;
-use morton::deinterleave_morton;
+use morton::interleave_morton;
 use rapier2d::prelude::*;
 use sefirot::mapping::buffer::StaticDomain;
 
@@ -149,30 +149,30 @@ fn compute_object_staging(
     mut staging: ResMut<ObjectFieldStaging>,
 ) {
     // TODO: Do something else since this is just dumb.
-    use rayon::prelude::*;
     assert!(staging.0.is_none());
-    let values = (0_u32..256 * 256)
-        .into_par_iter()
-        .map(|i| {
-            let (x, y) = deinterleave_morton(i);
-            let pos = Vector2::new(x, y).cast::<f32>() + Vector2::repeat(0.5 - 64.0);
-            let mut object = NULL_OBJECT;
-            rb_context.query_pipeline.intersections_with_point(
-                &rb_context.bodies,
-                &rb_context.colliders,
-                &Point::from(pos),
-                QueryFilter::default(),
-                |handle| {
-                    if let Some(handle) = rb_context.colliders[handle].parent() {
-                        let obj = rb_context.object_map[&handle];
-                        object = object.min(obj.0);
-                    }
-                    true
-                },
-            );
-            object
-        })
-        .collect::<Vec<_>>();
+    let mut values = vec![NULL_OBJECT; 256 * 256];
+
+    for (_handle, collider) in rb_context.colliders.iter() {
+        let object = rb_context.object_map[&collider.parent().unwrap()].0;
+        let aabb = collider.compute_aabb();
+        let min = aabb.mins.map(|x| x.round() as i32);
+        let max = aabb.maxs.map(|x| x.round() as i32);
+        for x in min.x..=max.x {
+            for y in min.y..=max.y {
+                let pos = Vector2::new(x, y).cast::<f32>() + Vector2::repeat(0.5);
+                if collider
+                    .shape()
+                    .contains_point(collider.position(), &Point::from(pos))
+                {
+                    let data_pos = Vector2::new(x, y) + Vector2::repeat(64);
+                    let data_pos = data_pos.map(|x| x.rem_euclid(256));
+                    let i = interleave_morton(data_pos.x as u16, data_pos.y as u16);
+                    values[i as usize] = values[i as usize].min(object);
+                }
+            }
+        }
+    }
+
     staging.0 = Some(values);
 }
 

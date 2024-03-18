@@ -12,7 +12,6 @@ sefirot_grid = { path = "../sefirot/sefirot_grid" }
 bevy_sefirot = { path = "../sefirot/bevy_sefirot", features = ["display"] }
 id_newtype = { path = "../sefirot/id_newtype" }
 morton = "0.3.0"
-rayon = "1.9.0"
 
 [dependencies.luisa_compute]
 git = "https://github.com/iMplode-nZ/luisa-compute-rs"
