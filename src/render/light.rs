@@ -130,6 +130,9 @@ fn trace_kernel(
             shared.write(trace_size + 1, radiance);
         }
 
+        let last_wall = false.var();
+        let last_radiance = Vec3::splat(0.0_f32).var();
+        let falloff = 0.0_f32.var();
         let si = index + 1;
 
         for _i in 0.expr()..trace_length.cast_u32() {
@@ -159,11 +162,23 @@ fn trace_kernel(
             let pos = pos.cast_u32();
 
             let wall = light.wall.expr(&el.at(pos)) != 0;
+
+            // Entering
+            if !last_wall && wall {
+                *last_radiance = radiance;
+                *falloff = 16.0;
+            }
             if wall {
+                *falloff -= correction;
                 *radiance = Vec3::splat(0.0); // wall / directions as f32;
             }
+            *last_wall = wall;
 
-            *light.radiance.var(&el.at(pos.extend(dir))) = radiance;
+            *light.radiance.var(&el.at(pos.extend(dir))) = if wall {
+                (last_radiance * luisa::max(falloff, 0.0) / 16.0 + 0.01 / directions as f32) * 0.5
+            } else {
+                **radiance
+            }
         }
     })
 }
