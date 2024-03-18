@@ -130,14 +130,23 @@ fn trace_kernel(
             shared.write(trace_size + 1, radiance);
         }
 
-        let last_wall = false.var();
+        let si = index + 1;
 
         for _i in 0.expr()..trace_length.cast_u32() {
-            let si = index + 1;
             shared.write(si, radiance);
             sync_block();
-            *radiance =
-                (1.0 - 2.0 * blur) * radiance + blur * (shared.read(si - 1) + shared.read(si + 1));
+            let num_wall = 0_u32.var();
+            // TODO: Is there a better way to do this?
+            // Also this'll break if I allow colors in walls.
+            let s1 = shared.read(si - 1);
+            if (s1 == Vec3::splat(0.0)).all() {
+                *num_wall += 1;
+            }
+            let s2 = shared.read(si + 1);
+            if (s2 == Vec3::splat(0.0)).all() {
+                *num_wall += 1;
+            }
+            *radiance = (1.0 - (2 - num_wall).cast_f32() * blur) * radiance + blur * (s1 + s2);
 
             let mask = side_dist <= side_dist.yx();
             *side_dist += mask.select(delta_dist, Vec2::splat_expr(0.0));
@@ -153,7 +162,6 @@ fn trace_kernel(
             if wall {
                 *radiance = Vec3::splat(0.0); // wall / directions as f32;
             }
-            *last_wall = wall;
 
             *light.radiance.var(&el.at(pos.extend(dir))) = radiance;
         }
@@ -217,16 +225,20 @@ impl Default for LightConstants {
     fn default() -> Self {
         let directions = 64;
         Self {
-            trace_size: 512,
-            scaling: 2,
+            trace_size: 256,
+            scaling: 1,
             directions,
             blur: 0.3,
             skylight: (0..directions)
                 .map(|dir| {
                     let angle = (dir as f32 * TAU) / directions as f32;
                     let norm = (-angle.sin()).max(0.0) * (-angle.sin()).max(0.0);
-                    let sun: f32 = if dir == 53 { 1.0 } else { 0.0 };
-                    Vector3::new(0.3, 0.7, 1.0) * 0.0 * norm * 0.3 / directions as f32
+                    let sun: f32 = if (dir as i32 - 53).abs() < 3 {
+                        0.2
+                    } else {
+                        0.0
+                    };
+                    Vector3::new(0.3, 0.7, 1.0) * norm * 0.3 / directions as f32
                         + sun * Vector3::new(1.0, 1.0, 0.8) * 0.1
                 })
                 .collect::<Vec<_>>(),

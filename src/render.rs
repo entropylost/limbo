@@ -77,6 +77,8 @@ fn delinearize() -> impl AsNodes {
     delinearize_kernel.dispatch()
 }
 
+// TODO: If I make the display not use the original texture this won't be necessary.
+// Irrelevant either way really since I'll be copying to bevy most likely.
 #[kernel]
 fn finalize_kernel(device: Res<Device>, fields: Res<RenderFields>) -> Kernel<fn()> {
     Kernel::build(&device, &fields.screen_domain, &|el| {
@@ -116,7 +118,7 @@ impl Default for RenderConstants {
     fn default() -> Self {
         Self {
             gamma: 2.2,
-            scaling: 16,
+            scaling: 12,
         }
     }
 }

@@ -39,7 +39,8 @@ fn setup_texture(
     render_constants: Res<RenderConstants>,
 ) {
     let dim = render_constants.scaling;
-    let n = dim.ilog2();
+    let n = dim.next_power_of_two().ilog2();
+    let dim = 1 << n;
     let bayer = bayer(n) / 255.0;
     let texture = device.create_tex2d::<f32>(PixelStorage::Float1, dim, dim, 1);
     // TODO: Make async using copy_from_vec after adding a `RenderInit` phase.
