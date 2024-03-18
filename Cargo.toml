@@ -15,7 +15,7 @@ morton = "0.3.0"
 
 [dependencies.luisa_compute]
 git = "https://github.com/iMplode-nZ/luisa-compute-rs"
-branch = "main"
+branch = "older-submod"
 features = ["nalgebra", "glam"]
 
 [dependencies.bevy]

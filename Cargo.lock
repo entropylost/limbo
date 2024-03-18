@@ -1635,7 +1635,7 @@ checksum = "90ed8c1e510134f979dbc4f070f87d4313098b704861a105fe34231c70a3901c"
 [[package]]
 name = "luisa_compute"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#92cfa275b2d649782a13fb9b1f507981c7e1bfe0"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=older-submod#f2388c4a9d7b03d9d2e9f3aac433483be73b1843"
 dependencies = [
  "bumpalo",
  "env_logger",
@@ -1664,7 +1664,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_api_types"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#92cfa275b2d649782a13fb9b1f507981c7e1bfe0"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=older-submod#f2388c4a9d7b03d9d2e9f3aac433483be73b1843"
 dependencies = [
  "bitflags 2.4.2",
  "cbindgen",
@@ -1674,7 +1674,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_backend"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#92cfa275b2d649782a13fb9b1f507981c7e1bfe0"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=older-submod#f2388c4a9d7b03d9d2e9f3aac433483be73b1843"
 dependencies = [
  "lazy_static",
  "libc",
@@ -1690,7 +1690,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_derive"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#92cfa275b2d649782a13fb9b1f507981c7e1bfe0"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=older-submod#f2388c4a9d7b03d9d2e9f3aac433483be73b1843"
 dependencies = [
  "luisa_compute_derive_impl",
  "syn 2.0.53",
@@ -1699,7 +1699,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_derive_impl"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#92cfa275b2d649782a13fb9b1f507981c7e1bfe0"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=older-submod#f2388c4a9d7b03d9d2e9f3aac433483be73b1843"
 dependencies = [
  "prettyplease",
  "proc-macro2",
@@ -1710,7 +1710,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_ir"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#92cfa275b2d649782a13fb9b1f507981c7e1bfe0"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=older-submod#f2388c4a9d7b03d9d2e9f3aac433483be73b1843"
 dependencies = [
  "base64ct",
  "bincode",
@@ -1732,7 +1732,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_sys"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#92cfa275b2d649782a13fb9b1f507981c7e1bfe0"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=older-submod#f2388c4a9d7b03d9d2e9f3aac433483be73b1843"
 dependencies = [
  "cmake",
 ]
@@ -1740,7 +1740,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_track"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#92cfa275b2d649782a13fb9b1f507981c7e1bfe0"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=older-submod#f2388c4a9d7b03d9d2e9f3aac433483be73b1843"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
