@@ -38,7 +38,7 @@ fn setup_texture(
     device: Res<Device>,
     render_constants: Res<RenderConstants>,
 ) {
-    let dim = render_constants.upscale_factor;
+    let dim = render_constants.scaling;
     let n = dim.ilog2();
     let bayer = bayer(n) / 255.0;
     let texture = device.create_tex2d::<f32>(PixelStorage::Float1, dim, dim, 1);
@@ -55,7 +55,7 @@ fn dither_kernel(
     dither: Res<DitherTexture>,
 ) -> Kernel<fn()> {
     Kernel::build(&device, &render.screen_domain, &|el| {
-        let dither = dither.texture.read(*el % render_constants.upscale_factor);
+        let dither = dither.texture.read(*el % render_constants.scaling);
         *render.screen_color.var(&el) += dither;
     })
 }

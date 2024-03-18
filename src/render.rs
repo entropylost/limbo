@@ -56,7 +56,7 @@ fn upscale_kernel(
 ) -> Kernel<fn(Vec2<i32>, Vec2<u32>)> {
     Kernel::build(&device, &fields.screen_domain, &|el, start, offset| {
         let pos = (Vec2::expr(el.x, fields.screen_domain.height() - 1 - el.y) + offset)
-            / constants.upscale_factor;
+            / constants.scaling;
         let world_el = el.at(start + pos.cast_i32());
         let color = fields.color.expr(&world_el);
         *fields.screen_color.var(&el) = color;
@@ -92,11 +92,11 @@ fn upscale(
     fields: Res<RenderFields>,
 ) -> impl AsNodes {
     let viewport_size =
-        Vector2::from(fields.screen_domain.0).cast::<f32>() / constants.upscale_factor as f32;
+        Vector2::from(fields.screen_domain.0).cast::<f32>() / constants.scaling as f32;
     let view_start = parameters.view_center - viewport_size.cast::<f32>() / 2.0;
     let start_integral = view_start.map(|x| x.floor() as i32);
     let start_fractional = view_start - start_integral.cast::<f32>();
-    let offset = (start_fractional * constants.upscale_factor as f32)
+    let offset = (start_fractional * constants.scaling as f32)
         .try_cast::<u32>()
         .unwrap();
     upscale_kernel.dispatch(&Vec2::from(start_integral), &Vec2::from(offset))
@@ -110,13 +110,13 @@ pub struct RenderParameters {
 #[derive(Resource, Debug, Clone, Copy)]
 pub struct RenderConstants {
     pub gamma: f32,
-    pub upscale_factor: u32,
+    pub scaling: u32,
 }
 impl Default for RenderConstants {
     fn default() -> Self {
         Self {
             gamma: 2.2,
-            upscale_factor: 16,
+            scaling: 16,
         }
     }
 }

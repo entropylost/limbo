@@ -60,10 +60,11 @@ fn wall_kernel(
     device: Res<Device>,
     world: Res<World>,
     light: Res<LightFields>,
+    constants: Res<LightConstants>,
     physics: Res<PhysicsFields>,
 ) -> Kernel<fn(Vec2<i32>)> {
     Kernel::build(&device, &light.domain, &|el, offset| {
-        let world_el = el.at(el.cast_i32() + offset);
+        let world_el = el.at(el.cast_i32() / constants.scaling as i32 + offset);
         if world.contains(&world_el) {
             let wall = physics.object.expr(&world_el) != NULL_OBJECT;
             *light.wall.var(&el) = wall.cast::<u32>();
@@ -129,6 +130,8 @@ fn trace_kernel(
             shared.write(trace_size + 1, radiance);
         }
 
+        let last_wall = false.var();
+
         for _i in 0.expr()..trace_length.cast_u32() {
             let si = index + 1;
             shared.write(si, radiance);
@@ -150,6 +153,7 @@ fn trace_kernel(
             if wall {
                 *radiance = Vec3::splat(0.0); // wall / directions as f32;
             }
+            *last_wall = wall;
 
             *light.radiance.var(&el.at(pos.extend(dir))) = radiance;
         }
@@ -164,16 +168,30 @@ fn accumulate_kernel(
     constants: Res<LightConstants>,
     render: Res<RenderFields>,
 ) -> Kernel<fn(Vec2<i32>)> {
-    Kernel::build(&device, &light.domain, &|el, offset| {
-        let radiance = Vec3::splat(0.0_f32).var();
-        for dir in 0..constants.directions {
-            *radiance += light.radiance.expr(&el.at(el.extend(dir)));
-        }
-        let world_el = el.at(el.cast_i32() + offset);
-        if world.contains(&world_el) {
-            *render.color.var(&world_el) = radiance;
-        }
-    })
+    Kernel::build(
+        &device,
+        &StaticDomain::<2>::new(
+            light.domain.width() / constants.scaling,
+            light.domain.height() / constants.scaling,
+        ),
+        &|el, offset| {
+            let radiance = Vec3::splat(0.0_f32).var();
+            for dx in 0..constants.scaling {
+                for dy in 0..constants.scaling {
+                    for dir in 0..constants.directions {
+                        *radiance += light.radiance.expr(
+                            &el.at((constants.scaling * *el + Vec2::expr(dx, dy)).extend(dir)),
+                        );
+                    }
+                }
+            }
+            let world_el = el.at(el.cast_i32() + offset);
+            if world.contains(&world_el) {
+                *render.color.var(&world_el) =
+                    radiance / (constants.scaling * constants.scaling) as f32;
+            }
+        },
+    )
 }
 
 fn color(parameters: Res<LightParameters>, mut time: Local<u32>) -> impl AsNodes {
@@ -190,6 +208,7 @@ fn color(parameters: Res<LightParameters>, mut time: Local<u32>) -> impl AsNodes
 #[derive(Resource, Clone)]
 pub struct LightConstants {
     trace_size: u32,
+    scaling: u32,
     directions: u32,
     blur: f32,
     skylight: Vec<Vector3<f32>>,
@@ -198,7 +217,8 @@ impl Default for LightConstants {
     fn default() -> Self {
         let directions = 64;
         Self {
-            trace_size: 256,
+            trace_size: 512,
+            scaling: 2,
             directions,
             blur: 0.3,
             skylight: (0..directions)
@@ -206,7 +226,7 @@ impl Default for LightConstants {
                     let angle = (dir as f32 * TAU) / directions as f32;
                     let norm = (-angle.sin()).max(0.0) * (-angle.sin()).max(0.0);
                     let sun: f32 = if dir == 53 { 1.0 } else { 0.0 };
-                    Vector3::new(0.3, 0.7, 1.0) * norm * 0.3 / directions as f32
+                    Vector3::new(0.3, 0.7, 1.0) * 0.0 * norm * 0.3 / directions as f32
                         + sun * Vector3::new(1.0, 1.0, 0.8) * 0.1
                 })
                 .collect::<Vec<_>>(),
@@ -227,7 +247,8 @@ impl Default for LightParameters {
 }
 impl LightParameters {
     pub fn set_center(&mut self, constants: &LightConstants, center: Vector2<i32>) {
-        self.offset = center - Vector2::repeat(constants.trace_size as i32 / 2);
+        self.offset =
+            center - Vector2::repeat(constants.trace_size as i32 / 2 / constants.scaling as i32);
     }
 }
 
