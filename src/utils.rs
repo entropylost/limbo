@@ -16,10 +16,8 @@ pub fn tan(x: f32) -> f32 {
     ComplexField::tan(x)
 }
 
-pub fn run_schedule(label: impl ScheduleLabel + Copy) -> impl FnMut(&mut BevyWorld) {
-    move |world| {
-        world.run_schedule(label);
-    }
+pub fn run_schedule<L: ScheduleLabel + Default>(world: &mut BevyWorld) {
+    world.run_schedule(L::default());
 }
 
 pub fn init_resource<T: Resource + FromWorld>(mut commands: Commands) {
@@ -28,6 +26,9 @@ pub fn init_resource<T: Resource + FromWorld>(mut commands: Commands) {
 
 pub fn execute_graph<T: DerefMut<Target = MirrorGraph> + Resource>(mut graph: ResMut<T>) {
     graph.execute_init();
+}
+pub fn execute_graph_dbg<T: DerefMut<Target = MirrorGraph> + Resource>(mut graph: ResMut<T>) {
+    graph.execute_init_dbg();
 }
 
 // https://nullprogram.com/blog/2018/07/31/

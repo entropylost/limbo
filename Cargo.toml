@@ -19,19 +19,13 @@ branch = "main"
 features = ["nalgebra", "glam"]
 
 [dependencies.bevy]
-version = "0.13.0"
+version = "0.13.1"
 default-features = false
-features = ["bevy_winit", "x11"]
+features = ["bevy_winit", "x11", "multi-threaded"]
 
 [features]
 default = ["debug"]
 debug = ["bevy/dynamic_linking", "sefirot/debug", "bevy_sefirot/debug"]
 
-[profile.dev.package.backtrace]
+[profile.dev.package.'*']
 opt-level = 3
-
-[patch.crates-io]
-bevy = { git = "https://github.com/bevyengine/bevy", branch = "release-0.13.1" }
-
-# [patch.'https://github.com/iMplode-nZ/luisa-compute-rs']
-# luisa_compute = { git = "https://github.com/iMplode-nZ/luisa-compute-rs", branch = "older-submod" }

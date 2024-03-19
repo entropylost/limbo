@@ -183,7 +183,7 @@ fn accumulate_kernel(
             light.domain.height() / constants.scaling,
         ),
         &|el, offset| {
-            let radiance = Vec3::splat(0.0_f32).var();
+            let radiance = Vec3::<f32>::var_zeroed();
             for dx in 0..constants.scaling {
                 for dy in 0..constants.scaling {
                     for dir in 0..constants.directions {

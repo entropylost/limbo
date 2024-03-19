@@ -1,6 +1,6 @@
 use super::prelude::*;
 pub use crate::prelude::*;
-use crate::world::imf::{ImfFields, IMF_CAP};
+use crate::world::imf::ImfFields;
 use crate::world::physics::{PhysicsFields, NULL_OBJECT};
 
 #[kernel]
@@ -13,8 +13,8 @@ fn color_kernel(
 ) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|el| {
         let object = physics.object.expr(&el);
-        let color = if object == NULL_OBJECT {
-            Vec3::expr(1.0, 0.2, 0.0) * imf.value.expr(&el).as_f32() / IMF_CAP as f32
+        let color = if true {
+            Vec3::expr(1.0, 0.2, 0.0) * imf.velocity.expr(&el).norm()
         } else {
             Vec3::splat_expr(1.0)
         };

@@ -4,6 +4,7 @@ use sefirot_grid::GridDomain;
 
 use crate::prelude::*;
 
+pub mod direction;
 pub mod imf;
 pub mod physics;
 
@@ -74,7 +75,7 @@ pub struct World {
 
 impl FromWorld for World {
     fn from_world(_world: &mut BevyWorld) -> Self {
-        let domain = GridDomain::new([-64, -64], [256, 256]).with_morton();
+        let domain = GridDomain::new_wrapping([-64, -64], [256, 256]).with_morton();
         World { domain }
     }
 }
@@ -115,7 +116,7 @@ impl Plugin for WorldPlugin {
             )
             .add_systems(
                 PreUpdate,
-                (run_schedule(WorldInit), execute_graph::<InitGraph>)
+                (run_schedule::<WorldInit>, execute_graph::<InitGraph>)
                     .chain()
                     .run_if(run_once()),
             )
@@ -123,8 +124,8 @@ impl Plugin for WorldPlugin {
                 Update,
                 (
                     (
-                        run_schedule(WorldUpdate),
-                        (execute_graph::<UpdateGraph>, run_schedule(HostUpdate)),
+                        run_schedule::<WorldUpdate>,
+                        (execute_graph::<UpdateGraph>, run_schedule::<HostUpdate>),
                     )
                         .chain()
                         .run_if(in_state(WorldState::Running)),

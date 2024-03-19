@@ -63,7 +63,7 @@ fn upscale_kernel(
     })
 }
 
-#[kernel]
+#[kernel(run)]
 fn delinearize_kernel(
     device: Res<Device>,
     fields: Res<RenderFields>,
@@ -73,20 +73,14 @@ fn delinearize_kernel(
         *fields.screen_color.var(&el) = fields.screen_color.expr(&el).powf(1.0 / constants.gamma);
     })
 }
-fn delinearize() -> impl AsNodes {
-    delinearize_kernel.dispatch()
-}
 
 // TODO: If I make the display not use the original texture this won't be necessary.
 // Irrelevant either way really since I'll be copying to bevy most likely.
-#[kernel]
+#[kernel(run)]
 fn finalize_kernel(device: Res<Device>, fields: Res<RenderFields>) -> Kernel<fn()> {
     Kernel::build(&device, &fields.screen_domain, &|el| {
         *fields.final_color.var(&el) = fields.screen_color.expr(&el).extend(1.0);
     })
-}
-fn finalize() -> impl AsNodes {
-    finalize_kernel.dispatch()
 }
 fn upscale(
     constants: Res<RenderConstants>,
@@ -205,10 +199,9 @@ impl Plugin for RenderPlugin {
                 ),
             )
             .add_systems(
-                PostUpdate,
-                (run_schedule(Render), execute_graph::<RenderGraph>)
-                    .chain()
-                    .after(present_swapchain),
-            );
+                Update,
+                run_schedule::<Render>.before(run_schedule::<WorldUpdate>),
+            )
+            .add_systems(HostUpdate, execute_graph::<RenderGraph>);
     }
 }

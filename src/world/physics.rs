@@ -207,6 +207,6 @@ impl Plugin for PhysicsPlugin {
             WorldUpdate,
             add_update(update_objects).in_set(UpdatePhase::CopyBodiesFromHost),
         )
-        .add_systems(HostUpdate, (update_bodies, compute_object_staging));
+        .add_systems(HostUpdate, (update_bodies, compute_object_staging).chain());
     }
 }
