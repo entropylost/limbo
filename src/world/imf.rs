@@ -101,9 +101,10 @@ fn collision_kernel(
                 let dp = dir.as_vec().expr().cast_f32().dot(velocity);
                 let equilibrium = pressure
                     * lattice_weight(dir)
+                    // change to putting lattice_weight instead of 1.0 for first to make it incompressible.
                     * (1.0 + dp / cs2 + (dp * dp) / (2.0 * cs2 * cs2)
                         - velocity.norm_squared() / (2.0 * cs2));
-                let external_force = Vec2::expr(0.01, 0.0);
+                let external_force = Vec2::expr(0.0, 0.0);
 
                 let force = (1.0 - 1.0 / (2.0 * relaxation))
                     * lattice_weight(dir)
@@ -125,6 +126,24 @@ fn collision_kernel(
 }
 
 #[kernel(run)]
+fn init_kernel(
+    device: Res<Device>,
+    world: Res<World>,
+    physics: Res<PhysicsFields>,
+    imf: Res<ImfFields>,
+) -> Kernel<fn()> {
+    Kernel::build(&device, &**world, &|el| {
+        let data = imf.value.var(&el);
+        for dir in Direction::iter_all() {
+            data.write(
+                dir as u32,
+                1.0 + 0.01 * rand_f32((*el + 64).cast_u32(), 0.expr(), dir as u32),
+            );
+        }
+    })
+}
+
+#[kernel(run)]
 fn load_player_kernel(
     device: Res<Device>,
     world: Res<World>,
@@ -132,35 +151,24 @@ fn load_player_kernel(
     imf: Res<ImfFields>,
 ) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|el| {
-        let data = [1.0_f32; 9].var();
-        for dir in Direction::iter_all() {
-            data.write(
-                dir as u32,
-                1.0 + 0.01 * rand_f32((*el + 64).cast_u32(), 0.expr(), dir as u32),
-            );
+        let data = imf.value.var(&el);
+        if physics.object.expr(&el) != NULL_OBJECT {
+            for dir in Direction::iter_all() {
+                data.write(dir as u32, 1.0);
+            }
+        } else {
+            for dir in Direction::iter_all() {
+                data.write(dir as u32, data.read(dir as u32) * 0.999);
+            }
         }
-        // data.write(
-        //     Direction::Right as u32,
-        //     2.0, // * (1.0 + 0.2 * (TAU * el.x.as_f32() / 256.0).cos()),
-        // );
-        // let density = 0.0.var();
-        // for dir in Direction::iter_all() {
-        //     let index = dir as u32;
-        //     *density += data.read(index);
-        // }
-        // for dir in Direction::iter_all() {
-        //     let index = dir as u32;
-        //     data.write(index, data.read(index) * 100.0 / density);
-        // }
-        *imf.value.var(&el) = data;
     })
 }
 
 fn update_imf() -> impl AsNodes {
     (
-        // load_player_kernel.dispatch(),
+        load_player_kernel.dispatch(),
         compute_moments_kernel.dispatch(),
-        collision_kernel.dispatch(&0.6),
+        collision_kernel.dispatch(&2.0),
         stream_kernel.dispatch(),
     )
         .chain()
@@ -177,9 +185,10 @@ impl Plugin for ImfPlugin {
                     init_load_player_kernel,
                     init_compute_moments_kernel,
                     init_collision_kernel,
+                    init_init_kernel,
                 ),
             )
-            .add_systems(WorldInit, add_init(load_player))
+            .add_systems(WorldInit, add_init(init))
             .add_systems(
                 WorldUpdate,
                 add_update(update_imf).in_set(UpdatePhase::Step),
