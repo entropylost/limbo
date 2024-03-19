@@ -126,16 +126,16 @@ fn update_viewport(
 }
 
 fn setup(mut commands: Commands, mut rb_context: ResMut<RigidBodyContext>) {
-    let body = RigidBodyBuilder::fixed()
-        .translation(Vector2::new(64.0, 20.0))
-        .build();
-    let collider = ColliderBuilder::cuboid(50.0, 6.0).build();
-    rb_context.insert2(body, collider);
-    let player = RigidBodyBuilder::dynamic()
+    // let body = RigidBodyBuilder::fixed()
+    //     .translation(Vector2::new(64.0, 20.0))
+    //     .build();
+    // let collider = ColliderBuilder::cuboid(50.0, 6.0).build();
+    // rb_context.insert2(body, collider);
+    let player = RigidBodyBuilder::fixed()
         .translation(Vector2::new(64.0, 64.0))
         .lock_rotations()
         .build();
-    let player_collider = ColliderBuilder::cuboid(5.0, 5.0).build();
+    let player_collider = ColliderBuilder::ball(10.0).build();
     let player = rb_context.insert2(player, player_collider);
     commands.spawn((Player { body: player }, ActivePlayer));
 }

@@ -34,6 +34,19 @@ impl Direction {
     pub fn diag(self) -> bool {
         self as u8 >= 5
     }
+    pub fn reflect(self) -> Self {
+        match self {
+            Self::Left => Self::Right,
+            Self::Right => Self::Left,
+            Self::Down => Self::Up,
+            Self::Up => Self::Down,
+            Self::DownLeft => Self::UpRight,
+            Self::DownRight => Self::UpLeft,
+            Self::UpLeft => Self::DownRight,
+            Self::UpRight => Self::DownLeft,
+            Self::Null => Self::Null,
+        }
+    }
     pub fn vector_table() -> [Vector2<i32>; 9] {
         [
             [0, 0],
