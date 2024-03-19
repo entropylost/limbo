@@ -1,6 +1,6 @@
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::prelude::*;
-use bevy::window::WindowMode;
+use bevy::window::{WindowMode, WindowResolution};
 use bevy_sefirot::display::DisplayPlugin;
 use bevy_sefirot::prelude::*;
 use nalgebra::Vector2;
@@ -49,7 +49,7 @@ fn main() {
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 resizable: false,
-                mode: WindowMode::BorderlessFullscreen,
+                resolution: WindowResolution::new(1920.0, 1080.0 - 32.0),
                 ..default()
             }),
             ..default()

@@ -15,7 +15,7 @@ morton = "0.3.0"
 
 [dependencies.luisa_compute]
 git = "https://github.com/iMplode-nZ/luisa-compute-rs"
-branch = "older-submod"
+branch = "main"
 features = ["nalgebra", "glam"]
 
 [dependencies.bevy]
@@ -32,3 +32,6 @@ opt-level = 3
 
 [patch.crates-io]
 bevy = { git = "https://github.com/bevyengine/bevy", branch = "release-0.13.1" }
+
+# [patch.'https://github.com/iMplode-nZ/luisa-compute-rs']
+# luisa_compute = { git = "https://github.com/iMplode-nZ/luisa-compute-rs", branch = "older-submod" }
