@@ -16,6 +16,8 @@ pub struct ImfFields {
     pub next_mass: VField<f32, Vec2<i32>>,
     pub velocity: VField<Vec2<f32>, Vec2<i32>>,
     pub next_velocity: VField<Vec2<f32>, Vec2<i32>>,
+    pub object: VField<u32, Vec2<i32>>,
+    pub next_object: VField<u32, Vec2<i32>>,
     _fields: FieldSet,
 }
 
@@ -26,6 +28,8 @@ fn setup_imf(mut commands: Commands, device: Res<Device>, world: Res<World>) {
         next_mass: *fields.create_bind("imf-next-mass", world.create_buffer(&device)),
         velocity: fields.create_bind("imf-velocity", world.create_texture(&device)),
         next_velocity: fields.create_bind("imf-next-velocity", world.create_texture(&device)),
+        object: fields.create_bind("imf-object", world.create_texture(&device)),
+        next_object: fields.create_bind("imf-next-object", world.create_texture(&device)),
         _fields: fields,
     };
     commands.insert_resource(imf);
@@ -57,6 +61,7 @@ fn copy_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> K
     Kernel::build(&device, &**world, &|el| {
         *imf.mass.var(&el) = imf.next_mass.expr(&el) * 0.99;
         *imf.velocity.var(&el) = (imf.next_velocity.expr(&el)).clamp(-MAX_VEL, MAX_VEL);
+        *imf.object.var(&el) = imf.next_object.expr(&el);
     })
 }
 
@@ -89,22 +94,22 @@ fn advect_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) ->
         if mass > 0.001 {
             *imf.next_mass.var(&el) = mass;
             *imf.next_velocity.var(&el) = momentum / mass;
+            let lookup = *el - imf.next_velocity.expr(&el).signum().cast_i32();
+            *imf.next_object.var(&el) = imf.object.expr(&el.at(lookup));
         } else {
             *imf.next_mass.var(&el) = mass;
             *imf.next_velocity.var(&el) = Vec2::expr(0.0, 0.0);
+            *imf.next_object.var(&el) = NULL_OBJECT;
         }
     })
 }
 
-//  #[kernel(run)]
-//  fn load_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> Kernel<fn()> {
-//      Kernel::build(&device, &**world, &|el| {
-//          if (el.cast_f32() - Vec2::new(64.0, 80.0)).norm() < 30.0 {
-//              *imf.mass.var(&el) += 0.3;
-//              // *imf.velocity.var(&el) = Vec2::expr(0.0, 0.0);
-//          }
-//      })
-//  }
+#[kernel(run)]
+fn load_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> Kernel<fn()> {
+    Kernel::build(&device, &**world, &|el| {
+        *imf.object.var(&el) = NULL_OBJECT;
+    })
+}
 
 #[kernel]
 fn collide_kernel(
@@ -115,8 +120,13 @@ fn collide_kernel(
 ) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|el| {
         if physics.object.expr(&el) != NULL_OBJECT {
+            // let last_mass = imf.mass.expr(&el);
             *imf.mass.var(&el) += 0.2;
-            // *imf.velocity.var(&el).y = 1.0;
+            *imf.object.var(&el) = physics.object.expr(&el);
+            // *imf.velocity.var(&el) = ((imf.velocity.var(&el) * last_mass
+            //     + 0.2 * physics.velocity.expr(&el) / 60.0)
+            //     / imf.mass.expr(&el))
+            // .clamp(-MAX_VEL, MAX_VEL);
             // Vec2::expr(
             //     rand_f32((*el + 64_i32).cast_u32(), t, 0) - 0.5,
             //     rand_f32((*el + 64_i32).cast_u32(), t, 1) - 0.5,
@@ -144,13 +154,13 @@ impl Plugin for ImfPlugin {
                 InitKernel,
                 (
                     init_advect_kernel,
-                    // init_load_kernel,
+                    init_load_kernel,
                     init_copy_kernel,
                     init_collide_kernel,
                     init_divergence_kernel,
                 ),
             )
-            // .add_systems(WorldInit, add_init(load))
+            .add_systems(WorldInit, add_init(load))
             .add_systems(
                 WorldUpdate,
                 add_update(update_imf).in_set(UpdatePhase::Step),

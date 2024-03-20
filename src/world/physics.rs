@@ -189,12 +189,7 @@ fn update_objects(
     physics: Res<PhysicsFields>,
     objects: Res<ObjectFields>,
     mut staging: ResMut<ObjectFieldStaging>,
-    mut allowed_run: Local<bool>,
 ) -> impl AsNodes {
-    if !*allowed_run {
-        *allowed_run = true;
-        return ().into_node_configs();
-    }
     let staging_objects = staging.physics_objects.take().unwrap();
     let staging_velocity = staging.object_velocity.take().unwrap();
 
@@ -202,7 +197,6 @@ fn update_objects(
         physics.object_buffer.copy_from_vec(staging_objects),
         objects.buffers.velocity.copy_from_vec(staging_velocity),
     )
-        .into_node_configs()
 }
 
 #[kernel(run)]
@@ -236,6 +230,7 @@ impl Plugin for PhysicsPlugin {
         .init_resource::<ObjectFieldStaging>()
         .add_systems(Startup, setup_physics)
         .add_systems(InitKernel, init_derive_velocity_kernel)
+        .add_systems(PostStartup, compute_object_staging)
         .add_systems(
             WorldUpdate,
             (add_update(update_objects), add_update(derive_velocity))
