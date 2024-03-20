@@ -198,7 +198,7 @@ pub struct PhysicsPlugin;
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(RigidBodyContext {
-            gravity: Vector2::new(0.0, -20.0),
+            gravity: Vector2::new(0.0, 0.0),
             ..default()
         })
         .init_resource::<ObjectFieldStaging>()

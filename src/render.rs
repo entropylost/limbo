@@ -1,5 +1,5 @@
 use bevy::ecs::schedule::ScheduleLabel;
-use bevy_sefirot::display::{present_swapchain, setup_display, DisplayTexture};
+use bevy_sefirot::display::{setup_display, DisplayTexture};
 use bevy_sefirot::MirrorGraph;
 use sefirot::mapping::buffer::StaticDomain;
 
@@ -10,9 +10,7 @@ pub mod dither;
 pub mod light;
 
 pub mod prelude {
-    pub use super::{
-        add_render, Render, RenderConstants, RenderFields, RenderParameters, RenderPhase,
-    };
+    pub use super::{add_render, Render, RenderConstants, RenderFields, RenderPhase};
 }
 
 #[derive(
@@ -59,7 +57,7 @@ fn upscale_kernel(
             / constants.scaling;
         let world_el = el.at(start + pos.cast_i32());
         let color = fields.color.expr(&world_el);
-        *fields.screen_color.var(&el) = color;
+        *fields.linear_color.var(&el) = color;
     })
 }
 
@@ -70,7 +68,8 @@ fn delinearize_kernel(
     constants: Res<RenderConstants>,
 ) -> Kernel<fn()> {
     Kernel::build(&device, &fields.screen_domain, &|el| {
-        *fields.screen_color.var(&el) = fields.screen_color.expr(&el).powf(1.0 / constants.gamma);
+        set_block_size([8, 8, 1]);
+        *fields.screen_color.var(&el) = fields.linear_color.expr(&el).powf(1.0 / constants.gamma);
     })
 }
 
@@ -123,6 +122,7 @@ pub struct RenderFields {
     pub color: VField<Vec3<f32>, Vec2<i32>>,
 
     pub screen_domain: StaticDomain<2>,
+    pub linear_color: VField<Vec3<f32>, Vec2<u32>>,
     pub screen_color: VField<Vec3<f32>, Vec2<u32>>,
     // After non-linear color correction.
     // TODO: If using a bevy texture, this may not be necessary.
@@ -140,6 +140,15 @@ fn setup_fields(
     let mut fields = FieldSet::new();
     let screen_domain = display.domain;
     let color = fields.create_bind("render-color", world.create_texture(&device));
+    let linear_color = fields.create_bind(
+        "render-linear-color",
+        screen_domain.map_tex2d(device.create_tex2d(
+            PixelStorage::Float4,
+            screen_domain.width(),
+            screen_domain.height(),
+            1,
+        )),
+    );
     let screen_color = fields.create_bind(
         "render-screen-color",
         screen_domain.map_tex2d(device.create_tex2d(
@@ -153,6 +162,7 @@ fn setup_fields(
     commands.insert_resource(RenderFields {
         color,
         screen_domain,
+        linear_color,
         screen_color,
         final_color,
         _fields: fields,

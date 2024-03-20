@@ -23,153 +23,96 @@ fn lattice_weight(dir: Direction) -> f32 {
 
 #[derive(Resource)]
 pub struct ImfFields {
-    pub value: VField<[f32; 9], Vec2<i32>>,
-    pub next_value: VField<[f32; 9], Vec2<i32>>,
-    pub pressure: VField<f32, Vec2<i32>>,
+    pub mass: VField<f32, Vec2<i32>>,
+    pub next_mass: VField<f32, Vec2<i32>>,
     pub velocity: VField<Vec2<f32>, Vec2<i32>>,
+    pub next_velocity: VField<Vec2<f32>, Vec2<i32>>,
     _fields: FieldSet,
 }
 
 fn setup_imf(mut commands: Commands, device: Res<Device>, world: Res<World>) {
     let mut fields = FieldSet::new();
     let imf = ImfFields {
-        value: *fields.create_bind("imf-value", world.create_buffer(&device)),
-        next_value: *fields.create_bind("imf-value", world.create_buffer(&device)),
-        pressure: fields.create_bind("imf-pressure", world.create_texture(&device)),
+        mass: *fields.create_bind("imf-mass", world.create_buffer(&device)),
+        next_mass: *fields.create_bind("imf-next-mass", world.create_buffer(&device)),
         velocity: fields.create_bind("imf-velocity", world.create_texture(&device)),
+        next_velocity: fields.create_bind("imf-next-velocity", world.create_texture(&device)),
         _fields: fields,
     };
     commands.insert_resource(imf);
 }
 
+// #[kernel]
+// fn divergence_kernel(device: Res<Device>, world: Res<World>, )
+
 #[kernel]
-fn compute_moments_kernel(
-    device: Res<Device>,
-    world: Res<World>,
-    imf: Res<ImfFields>,
-) -> Kernel<fn()> {
+fn copy_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|el| {
-        let pressure = f32::var_zeroed();
+        *imf.mass.var(&el) = imf.next_mass.expr(&el) * 0.95;
+        *imf.velocity.var(&el) = imf.next_velocity.expr(&el);
+    })
+}
+
+#[kernel]
+fn advect_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> Kernel<fn()> {
+    Kernel::build(&device, &**world, &|el| {
         let momentum = Vec2::<f32>::var_zeroed();
-        for dir in Direction::iter_all() {
-            let index = dir.expr().as_u8().as_u32();
-            let value = imf.value.expr(&el).read(index); //* weight;
-            *pressure += value;
-            *momentum += value * Vec2::from(dir.as_vector().cast::<f32>());
-        }
-        *imf.pressure.var(&el) = pressure;
-        let velocity = if pressure > 0.01 {
-            momentum / pressure
-        } else {
-            Vec2::splat_expr(0.0)
-        };
-        *imf.velocity.var(&el) = velocity;
-    })
-}
-
-#[kernel]
-fn stream_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> Kernel<fn()> {
-    Kernel::build(&device, &**world, &|el| {
-        let data = imf.value.var(&el);
-        for dir in Direction::iter_all() {
-            let index = dir as u32;
-            let lookup = el.at(*el - dir.as_vec());
-            if world.contains(&lookup) {
-                data.write(index, imf.next_value.expr(&lookup).read(index));
-            } else {
-                data.write(index, 0.0);
+        let mass = f32::var_zeroed();
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                let pos = el.at(Vec2::expr(dx, dy) + *el);
+                if !world.contains(&pos) {
+                    continue;
+                }
+                let vel = imf.velocity.expr(&pos);
+                let offset = vel + Vec2::<i32>::expr(dx, dy).cast_f32();
+                let intersect = luisa::max(luisa::min(offset + 1.0, 1.0 - offset), 0.0);
+                let weight = intersect.x * intersect.y;
+                let transferred_mass = imf.mass.expr(&pos) * weight;
+                *mass += transferred_mass;
+                *momentum += transferred_mass * vel;
             }
+        }
+        if mass > 0.001 {
+            *imf.next_mass.var(&el) = mass;
+            *imf.next_velocity.var(&el) = momentum / mass;
+        } else {
+            *imf.next_mass.var(&el) = mass;
+            *imf.next_velocity.var(&el) = Vec2::expr(0.0, 0.0);
         }
     })
 }
 
 #[kernel]
-fn collision_kernel(
+fn load_kernel(
     device: Res<Device>,
     world: Res<World>,
     imf: Res<ImfFields>,
     physics: Res<PhysicsFields>,
-) -> Kernel<fn(f32)> {
-    Kernel::build(&device, &**world, &|el, relaxation| {
-        let cs2 = 1.0_f32 / 3.0_f32;
-
-        let value = imf.value.expr(&el).var();
-        let pressure = imf.pressure.expr(&el);
-        let velocity = imf.velocity.expr(&el);
-        if physics.object.expr(&el) == NULL_OBJECT {
-            for dir in Direction::iter_all() {
-                let dp = dir.as_vec().expr().cast_f32().dot(velocity);
-                let equilibrium = pressure
-                    * lattice_weight(dir)
-                    // change to putting lattice_weight instead of 1.0 for first to make it incompressible.
-                    * (1.0 + dp / cs2 + (dp * dp) / (2.0 * cs2 * cs2)
-                        - velocity.norm_squared() / (2.0 * cs2));
-                let external_force = Vec2::expr(0.0, 0.0);
-
-                let force = (1.0 - 1.0 / (2.0 * relaxation))
-                    * lattice_weight(dir)
-                    * ((dir.as_vec().expr().cast_f32() - velocity) / cs2
-                        + dp / (cs2 * cs2) * dir.as_vec().expr().cast_f32())
-                    .dot(external_force);
-                let index = dir as u32;
-                let data = value.read(index);
-                value.write(index, data + (equilibrium - data) / relaxation + force);
-            }
-        } else {
-            let last_value = value.expr();
-            for dir in Direction::iter_all() {
-                value.write(dir as u32, last_value.read(dir.reflect() as u32));
-            }
+) -> Kernel<fn(u32)> {
+    Kernel::build(&device, &**world, &|el, t| {
+        if (el.cast_f32() - Vec2::expr(64.5, 64.5)).norm() < 10.0 {
+            *imf.mass.var(&el) = 5.0;
+            *imf.velocity.var(&el) = (el.cast_f32() - Vec2::expr(64.5, 64.5)).normalize();
         }
-        *imf.next_value.var(&el) = value;
-    })
-}
-
-#[kernel(run)]
-fn init_kernel(
-    device: Res<Device>,
-    world: Res<World>,
-    physics: Res<PhysicsFields>,
-    imf: Res<ImfFields>,
-) -> Kernel<fn()> {
-    Kernel::build(&device, &**world, &|el| {
-        let data = imf.value.var(&el);
-        for dir in Direction::iter_all() {
-            data.write(
-                dir as u32,
-                1.0 + 0.01 * rand_f32((*el + 64).cast_u32(), 0.expr(), dir as u32),
-            );
-        }
-    })
-}
-
-#[kernel(run)]
-fn load_player_kernel(
-    device: Res<Device>,
-    world: Res<World>,
-    physics: Res<PhysicsFields>,
-    imf: Res<ImfFields>,
-) -> Kernel<fn()> {
-    Kernel::build(&device, &**world, &|el| {
-        let data = imf.value.var(&el);
         if physics.object.expr(&el) != NULL_OBJECT {
-            for dir in Direction::iter_all() {
-                data.write(dir as u32, 1.0);
-            }
-        } else {
-            for dir in Direction::iter_all() {
-                data.write(dir as u32, data.read(dir as u32) * 0.999);
-            }
+            // *imf.mass.var(&el) = 0.0;
+            *imf.velocity.var(&el) = Vec2::expr(0.0, 0.0);
+            Vec2::expr(
+                rand_f32((*el + 64_i32).cast_u32(), t, 0) - 0.5,
+                rand_f32((*el + 64_i32).cast_u32(), t, 1) - 0.5,
+            )
+            .normalize();
         }
     })
 }
 
-fn update_imf() -> impl AsNodes {
+fn update_imf(mut t: Local<u32>) -> impl AsNodes {
+    *t += 1;
     (
-        load_player_kernel.dispatch(),
-        compute_moments_kernel.dispatch(),
-        collision_kernel.dispatch(&2.0),
-        stream_kernel.dispatch(),
+        load_kernel.dispatch(&*t),
+        advect_kernel.dispatch(),
+        copy_kernel.dispatch(),
     )
         .chain()
 }
@@ -180,15 +123,9 @@ impl Plugin for ImfPlugin {
         app.add_systems(Startup, setup_imf)
             .add_systems(
                 InitKernel,
-                (
-                    init_stream_kernel,
-                    init_load_player_kernel,
-                    init_compute_moments_kernel,
-                    init_collision_kernel,
-                    init_init_kernel,
-                ),
+                (init_advect_kernel, init_copy_kernel, init_load_kernel),
             )
-            .add_systems(WorldInit, add_init(init))
+            // .add_systems(WorldInit, add_init(load))
             .add_systems(
                 WorldUpdate,
                 add_update(update_imf).in_set(UpdatePhase::Step),

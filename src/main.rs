@@ -1,6 +1,6 @@
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::prelude::*;
-use bevy::window::{WindowMode, WindowResolution};
+use bevy::window::WindowResolution;
 use bevy_sefirot::display::DisplayPlugin;
 use bevy_sefirot::prelude::*;
 use nalgebra::Vector2;
@@ -56,7 +56,7 @@ fn main() {
         }))
         .add_plugins((FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin::default()))
         .add_plugins(LuisaPlugin {
-            device: "cuda".to_string(),
+            device: DeviceType::Cuda,
             ..default()
         })
         .add_plugins(DisplayPlugin)
@@ -126,16 +126,16 @@ fn update_viewport(
 }
 
 fn setup(mut commands: Commands, mut rb_context: ResMut<RigidBodyContext>) {
-    // let body = RigidBodyBuilder::fixed()
-    //     .translation(Vector2::new(64.0, 20.0))
-    //     .build();
-    // let collider = ColliderBuilder::cuboid(50.0, 6.0).build();
-    // rb_context.insert2(body, collider);
-    let player = RigidBodyBuilder::fixed()
+    let body = RigidBodyBuilder::fixed()
+        .translation(Vector2::new(64.0, 20.0))
+        .build();
+    let collider = ColliderBuilder::cuboid(50.0, 6.0).build();
+    rb_context.insert2(body, collider);
+    let player = RigidBodyBuilder::dynamic()
         .translation(Vector2::new(64.0, 64.0))
         .lock_rotations()
         .build();
-    let player_collider = ColliderBuilder::ball(10.0).build();
+    let player_collider = ColliderBuilder::cuboid(5.0, 5.0).build();
     let player = rb_context.insert2(player, player_collider);
     commands.spawn((Player { body: player }, ActivePlayer));
 }

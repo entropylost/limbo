@@ -14,7 +14,7 @@ fn color_kernel(
     Kernel::build(&device, &**world, &|el| {
         let object = physics.object.expr(&el);
         let color = if true {
-            Vec3::expr(1.0, 0.2, 0.0) * imf.pressure.expr(&el) / 9.0
+            Vec3::expr(1.0, 0.2, 0.0) * imf.mass.expr(&el)
         } else {
             Vec3::splat_expr(1.0)
         };
