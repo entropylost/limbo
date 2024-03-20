@@ -65,7 +65,7 @@ fn main() {
         .add_plugins(ImfPlugin)
         .add_plugins(RenderPlugin::default())
         .add_plugins(DitherPlugin)
-        .add_plugins(DebugPlugin)
+        .add_plugins(LightPlugin)
         .add_systems(Startup, setup)
         .add_systems(PreUpdate, (apply_player_force, update_viewport).chain())
         .run();

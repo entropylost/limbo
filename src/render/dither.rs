@@ -1,6 +1,6 @@
 use nalgebra::DMatrix;
 
-use super::delinearize;
+use super::delinearize_pass;
 use super::prelude::*;
 use crate::prelude::*;
 
@@ -48,32 +48,22 @@ fn setup_texture(
     commands.insert_resource(DitherTexture { texture });
 }
 
-#[kernel]
-fn dither_kernel(
-    device: Res<Device>,
-    render: Res<RenderFields>,
-    render_constants: Res<RenderConstants>,
+#[tracked]
+fn dither_pass(
+    pixel: NonSend<PostprocessData>,
     dither: Res<DitherTexture>,
-) -> Kernel<fn()> {
-    Kernel::build(&device, &render.screen_domain, &|el| {
-        let dither = dither.texture.read(*el % render_constants.scaling);
-        *render.screen_color.var(&el) += dither;
-    })
-}
-fn dither() -> impl AsNodes {
-    dither_kernel.dispatch()
+    render_constants: Res<RenderConstants>,
+) {
+    let dither = dither
+        .texture
+        .read(pixel.screen_pos % render_constants.scaling);
+    *pixel.color += dither;
 }
 
 pub struct DitherPlugin;
 impl Plugin for DitherPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup_texture)
-            .add_systems(InitKernel, init_dither_kernel)
-            .add_systems(
-                Render,
-                add_render(dither)
-                    .in_set(RenderPhase::Postprocess)
-                    .after(delinearize),
-            );
+            .add_systems(BuildPostprocess, dither_pass.after(delinearize_pass));
     }
 }

@@ -28,6 +28,9 @@ impl Direction {
             Self::UpRight,
         ]
     }
+    pub fn iter_diag() -> [Self; 4] {
+        [Self::DownLeft, Self::DownRight, Self::UpLeft, Self::UpRight]
+    }
     pub fn ortho(self) -> bool {
         self as u8 >= 1 && self as u8 <= 4
     }

@@ -1,5 +1,8 @@
-use bevy::ecs::schedule::ScheduleLabel;
+use std::cell::Cell;
+
+use bevy::ecs::schedule::{ExecutorKind, ScheduleLabel};
 use bevy_sefirot::display::{setup_display, DisplayTexture};
+use bevy_sefirot::luisa::init_kernel_system;
 use bevy_sefirot::MirrorGraph;
 use sefirot::mapping::buffer::StaticDomain;
 
@@ -10,13 +13,27 @@ pub mod dither;
 pub mod light;
 
 pub mod prelude {
-    pub use super::{add_render, Render, RenderConstants, RenderFields, RenderPhase};
+    pub use super::{
+        add_render, BuildPostprocess, PostprocessData, Render, RenderConstants, RenderFields,
+        RenderPhase,
+    };
 }
 
 #[derive(
     ScheduleLabel, Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect,
 )]
 pub struct Render;
+
+#[derive(
+    ScheduleLabel, Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect,
+)]
+pub struct BuildPostprocess;
+
+pub struct PostprocessData {
+    pub world_el: Element<Expr<Vec2<i32>>>,
+    pub screen_pos: Expr<Vec2<u32>>,
+    pub color: Var<Vec3<f32>>,
+}
 
 #[derive(Debug, Resource, Deref, DerefMut)]
 pub struct RenderGraph(pub MirrorGraph);
@@ -40,48 +57,52 @@ pub fn add_render<
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RenderPhase {
     Light,
-    Upscale,
     Postprocess,
-    Finalize,
 }
 
-// May want to add subpixel antialiasing.
-#[kernel]
-fn upscale_kernel(
-    device: Res<Device>,
-    fields: Res<RenderFields>,
-    constants: Res<RenderConstants>,
-) -> Kernel<fn(Vec2<i32>, Vec2<u32>)> {
-    Kernel::build(&device, &fields.screen_domain, &|el, start, offset| {
-        let pos = (Vec2::expr(el.x, fields.screen_domain.height() - 1 - el.y) + offset)
-            / constants.scaling;
+#[kernel(init = build_upscale_postprocess_kernel)]
+fn upscale_postprocess_kernel(world: &mut BevyWorld) -> Kernel<fn(Vec2<i32>, Vec2<u32>)> {
+    let device = (*world.resource::<Device>()).clone();
+    let fields = world.resource::<RenderFields>();
+    let screen_domain = fields.screen_domain;
+    let color_field = fields.color;
+    let final_color = fields.final_color;
+    let constants = world.resource::<RenderConstants>();
+    let scaling = constants.scaling;
+
+    let world_cell = Cell::new(Some(world));
+
+    Kernel::build(&device, &screen_domain, &|el, start, offset| {
+        // Upscale
+        // May want to add subpixel antialiasing.
+        let pos = (Vec2::expr(el.x, screen_domain.height() - 1 - el.y) + offset) / scaling;
         let world_el = el.at(start + pos.cast_i32());
-        let color = fields.color.expr(&world_el);
-        *fields.linear_color.var(&el) = color;
+        let color = color_field.expr(&world_el).var();
+
+        let data = PostprocessData {
+            world_el,
+            screen_pos: *el,
+            color,
+        };
+
+        let world = world_cell.take().unwrap();
+
+        world.insert_non_send_resource(data);
+
+        world.run_schedule(BuildPostprocess);
+
+        let data = world.remove_non_send_resource::<PostprocessData>().unwrap();
+
+        *final_color.var(&el) = data.color.extend(1.0);
     })
 }
 
-#[kernel(run)]
-fn delinearize_kernel(
-    device: Res<Device>,
-    fields: Res<RenderFields>,
-    constants: Res<RenderConstants>,
-) -> Kernel<fn()> {
-    Kernel::build(&device, &fields.screen_domain, &|el| {
-        set_block_size([8, 8, 1]);
-        *fields.screen_color.var(&el) = fields.linear_color.expr(&el).powf(1.0 / constants.gamma);
-    })
+#[tracked]
+fn delinearize_pass(pixel: NonSend<PostprocessData>, constants: Res<RenderConstants>) {
+    *pixel.color = pixel.color.powf(1.0 / constants.gamma);
 }
 
-// TODO: If I make the display not use the original texture this won't be necessary.
-// Irrelevant either way really since I'll be copying to bevy most likely.
-#[kernel(run)]
-fn finalize_kernel(device: Res<Device>, fields: Res<RenderFields>) -> Kernel<fn()> {
-    Kernel::build(&device, &fields.screen_domain, &|el| {
-        *fields.final_color.var(&el) = fields.screen_color.expr(&el).extend(1.0);
-    })
-}
-fn upscale(
+fn upscale_postprocess(
     constants: Res<RenderConstants>,
     parameters: Res<RenderParameters>,
     fields: Res<RenderFields>,
@@ -94,7 +115,7 @@ fn upscale(
     let offset = (start_fractional * constants.scaling as f32)
         .try_cast::<u32>()
         .unwrap();
-    upscale_kernel.dispatch(&Vec2::from(start_integral), &Vec2::from(offset))
+    upscale_postprocess_kernel.dispatch(&Vec2::from(start_integral), &Vec2::from(offset))
 }
 
 #[derive(Default, Resource, Debug, Clone, Copy)]
@@ -120,12 +141,7 @@ impl Default for RenderConstants {
 pub struct RenderFields {
     // In world-space.
     pub color: VField<Vec3<f32>, Vec2<i32>>,
-
     pub screen_domain: StaticDomain<2>,
-    pub linear_color: VField<Vec3<f32>, Vec2<u32>>,
-    pub screen_color: VField<Vec3<f32>, Vec2<u32>>,
-    // After non-linear color correction.
-    // TODO: If using a bevy texture, this may not be necessary.
     final_color: VField<Vec4<f32>, Vec2<u32>>,
     _fields: FieldSet,
 }
@@ -140,30 +156,10 @@ fn setup_fields(
     let mut fields = FieldSet::new();
     let screen_domain = display.domain;
     let color = fields.create_bind("render-color", world.create_texture(&device));
-    let linear_color = fields.create_bind(
-        "render-linear-color",
-        screen_domain.map_tex2d(device.create_tex2d(
-            PixelStorage::Float4,
-            screen_domain.width(),
-            screen_domain.height(),
-            1,
-        )),
-    );
-    let screen_color = fields.create_bind(
-        "render-screen-color",
-        screen_domain.map_tex2d(device.create_tex2d(
-            PixelStorage::Float4,
-            screen_domain.width(),
-            screen_domain.height(),
-            1,
-        )),
-    );
     let final_color = display.color;
     commands.insert_resource(RenderFields {
         color,
         screen_domain,
-        linear_color,
-        screen_color,
         final_color,
         _fields: fields,
     })
@@ -177,41 +173,31 @@ pub struct RenderPlugin {
 }
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
+        let mut postprocess_schedule = Schedule::new(BuildPostprocess);
+        postprocess_schedule.set_executor_kind(ExecutorKind::SingleThreaded);
         app.insert_resource(self.parameters)
             .insert_resource(self.constants)
             .init_schedule(Render)
+            .add_schedule(postprocess_schedule)
             .configure_sets(
                 Render,
-                (
-                    RenderPhase::Light,
-                    RenderPhase::Upscale,
-                    RenderPhase::Postprocess,
-                    RenderPhase::Finalize,
-                )
-                    .chain(),
+                (RenderPhase::Light, RenderPhase::Postprocess).chain(),
             )
             .add_systems(Startup, init_resource::<RenderGraph>)
             .add_systems(Startup, setup_fields.after(setup_display))
             .add_systems(
-                InitKernel,
-                (
-                    init_upscale_kernel,
-                    init_delinearize_kernel,
-                    init_finalize_kernel,
-                ),
-            )
-            .add_systems(
-                Render,
-                (
-                    add_render(upscale).in_set(RenderPhase::Upscale),
-                    add_render(delinearize).in_set(RenderPhase::Postprocess),
-                    add_render(finalize).in_set(RenderPhase::Finalize),
-                ),
+                PostStartup,
+                build_upscale_postprocess_kernel.after(init_kernel_system),
             )
             .add_systems(
                 Update,
                 run_schedule::<Render>.before(run_schedule::<WorldUpdate>),
             )
-            .add_systems(HostUpdate, execute_graph::<RenderGraph>);
+            .add_systems(HostUpdate, execute_graph::<RenderGraph>)
+            .add_systems(BuildPostprocess, delinearize_pass)
+            .add_systems(
+                Render,
+                add_render(upscale_postprocess).in_set(RenderPhase::Postprocess),
+            );
     }
 }

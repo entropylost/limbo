@@ -43,7 +43,16 @@ fn setup_imf(mut commands: Commands, device: Res<Device>, world: Res<World>) {
 }
 
 // #[kernel]
-// fn divergence_kernel(device: Res<Device>, world: Res<World>, )
+// fn divergence_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> Kernel<fn()>{
+//     Kernel::build(&device, &**world, &|el| {
+//         for dir in Direction::iter_diag() {
+//             let offset = dir.as_vector().map(|x| x.max(0));
+//             let offset = Vec2::from(offset);
+//             let oel = el.at(*el + offset);
+//             // TODO: Switch to using pressure.
+//         }
+//     })
+// }
 
 #[kernel]
 fn copy_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> Kernel<fn()> {
