@@ -139,14 +139,17 @@ fn setup_physics(mut commands: Commands, device: Res<Device>, world: Res<World>)
 }
 
 #[derive(Resource, Default)]
-struct ObjectFieldStaging(Option<Vec<u32>>);
+struct ObjectFieldStaging {
+    physics_objects: Option<Vec<u32>>,
+    object_velocity: Option<Vec<Vec2<f32>>>,
+}
 
 fn compute_object_staging(
     rb_context: Res<RigidBodyContext>,
     mut staging: ResMut<ObjectFieldStaging>,
 ) {
     // TODO: Do something else since this is just dumb.
-    assert!(staging.0.is_none());
+    assert!(staging.physics_objects.is_none());
     let mut values = vec![NULL_OBJECT; 256 * 256];
 
     for (_handle, collider) in rb_context.colliders.iter() {
@@ -170,11 +173,21 @@ fn compute_object_staging(
         }
     }
 
-    staging.0 = Some(values);
+    staging.physics_objects = Some(values);
+
+    assert!(staging.object_velocity.is_none());
+    let mut velocities = rb_context
+        .bodies
+        .iter()
+        .map(|(_, body)| Vec2::from(*body.linvel()))
+        .collect::<Vec<_>>();
+    velocities.resize(16, Vec2::splat(0.0));
+    staging.object_velocity = Some(velocities);
 }
 
 fn update_objects(
     physics: Res<PhysicsFields>,
+    objects: Res<ObjectFields>,
     mut staging: ResMut<ObjectFieldStaging>,
     mut allowed_run: Local<bool>,
 ) -> impl AsNodes {
@@ -182,12 +195,31 @@ fn update_objects(
         *allowed_run = true;
         return ().into_node_configs();
     }
-    let staging = staging.0.take().unwrap();
+    let staging_objects = staging.physics_objects.take().unwrap();
+    let staging_velocity = staging.object_velocity.take().unwrap();
 
-    physics
-        .object_buffer
-        .copy_from_vec(staging)
+    (
+        physics.object_buffer.copy_from_vec(staging_objects),
+        objects.buffers.velocity.copy_from_vec(staging_velocity),
+    )
         .into_node_configs()
+}
+
+#[kernel(run)]
+fn derive_velocity_kernel(
+    device: Res<Device>,
+    world: Res<World>,
+    physics: Res<PhysicsFields>,
+    objects: Res<ObjectFields>,
+) -> Kernel<fn()> {
+    Kernel::build(&device, &world.domain, &|el| {
+        let obj = physics.object.expr(&el);
+        if obj == NULL_OBJECT {
+            return;
+        }
+        let vel = objects.velocity.expr(&el.at(obj));
+        *physics.velocity.var(&el) = vel;
+    })
 }
 
 fn update_bodies(mut rb_context: ResMut<RigidBodyContext>) {
@@ -203,9 +235,12 @@ impl Plugin for PhysicsPlugin {
         })
         .init_resource::<ObjectFieldStaging>()
         .add_systems(Startup, setup_physics)
+        .add_systems(InitKernel, init_derive_velocity_kernel)
         .add_systems(
             WorldUpdate,
-            add_update(update_objects).in_set(UpdatePhase::CopyBodiesFromHost),
+            (add_update(update_objects), add_update(derive_velocity))
+                .chain()
+                .in_set(UpdatePhase::CopyBodiesFromHost),
         )
         .add_systems(HostUpdate, (update_bodies, compute_object_staging).chain());
     }

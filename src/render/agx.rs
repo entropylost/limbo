@@ -53,7 +53,7 @@ fn agx(val: Expr<Vec3<f32>>) -> Expr<Vec3<f32>> {
     let max_ev = 4.026069_f32;
 
     let val = agx_mat.expr() * val;
-    let val = val.log2().clamp(Vec3::splat(min_ev), max_ev.expr());
+    let val = val.log2().clamp(min_ev, max_ev);
     let val = (val - min_ev) / (max_ev - min_ev);
     agx_default_contrast_approx(val)
 }

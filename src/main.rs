@@ -16,10 +16,10 @@ use crate::world::imf::ImfPlugin;
 use crate::world::physics::{PhysicsPlugin, RigidBodyContext};
 use crate::world::WorldPlugin;
 
-mod prelude;
-mod render;
-mod utils;
-mod world;
+pub mod prelude;
+pub mod render;
+pub mod utils;
+pub mod world;
 
 fn install_eyre() {
     use color_eyre::config::*;
@@ -67,7 +67,7 @@ fn main() {
         .add_plugins(RenderPlugin::default())
         .add_plugins(AgXTonemapPlugin)
         .add_plugins(DitherPlugin)
-        .add_plugins(LightPlugin)
+        .add_plugins(DebugPlugin)
         .add_systems(Startup, setup)
         .add_systems(PreUpdate, (apply_player_force, update_viewport).chain())
         .run();
@@ -128,13 +128,23 @@ fn update_viewport(
 }
 
 fn setup(mut commands: Commands, mut rb_context: ResMut<RigidBodyContext>) {
+    //  let body = RigidBodyBuilder::fixed()
+    //      .translation(Vector2::new(20.0, 20.0))
+    //      .build();
+    //  let collider = ColliderBuilder::cuboid(6.0, 50.0).build();
+    //  rb_context.insert2(body, collider);
+    //  let body = RigidBodyBuilder::fixed()
+    //      .translation(Vector2::new(100.0, 20.0))
+    //      .build();
+    //  let collider = ColliderBuilder::cuboid(6.0, 50.0).build();
+    //  rb_context.insert2(body, collider);
     let body = RigidBodyBuilder::fixed()
         .translation(Vector2::new(64.0, 20.0))
         .build();
-    let collider = ColliderBuilder::cuboid(50.0, 6.0).build();
+    let collider = ColliderBuilder::cuboid(5.0, 5.0).build();
     rb_context.insert2(body, collider);
     let player = RigidBodyBuilder::dynamic()
-        .translation(Vector2::new(64.0, 64.0))
+        .translation(Vector2::new(10.0, 64.0))
         .lock_rotations()
         .build();
     let player_collider = ColliderBuilder::cuboid(5.0, 5.0).build();

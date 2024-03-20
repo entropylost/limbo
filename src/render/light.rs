@@ -67,7 +67,7 @@ fn wall_kernel(
         let world_el = el.at(el.cast_i32() / constants.scaling as i32 + offset);
         if world.contains(&world_el) {
             let wall = physics.object.expr(&world_el) != NULL_OBJECT;
-            *light.wall.var(&el) = wall.cast::<u32>();
+            *light.wall.var(&el) = wall.cast_u32();
         }
     })
 }

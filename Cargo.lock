@@ -102,9 +102,9 @@ dependencies = [
 
 [[package]]
 name = "aho-corasick"
-version = "1.1.2"
+version = "1.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2969dcb958b36655471fc61f7e416fa76033bdd4bfed0678d8fee1e2d07a1f0"
+checksum = "8e60d3430d3a69478ad0993f19238d2df97c507009a52b3c10addcd7f6bcb916"
 dependencies = [
  "memchr",
 ]
@@ -2241,7 +2241,7 @@ checksum = "90ed8c1e510134f979dbc4f070f87d4313098b704861a105fe34231c70a3901c"
 [[package]]
 name = "luisa_compute"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#5f5d2d38d30c1e58a7cb641280e1e3e5f5deeb01"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#4c63286d104040ce644825c38d44998fdac3ce18"
 dependencies = [
  "bumpalo",
  "env_logger",
@@ -2270,7 +2270,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_api_types"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#5f5d2d38d30c1e58a7cb641280e1e3e5f5deeb01"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#4c63286d104040ce644825c38d44998fdac3ce18"
 dependencies = [
  "bitflags 2.5.0",
  "cbindgen",
@@ -2280,7 +2280,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_backend"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#5f5d2d38d30c1e58a7cb641280e1e3e5f5deeb01"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#4c63286d104040ce644825c38d44998fdac3ce18"
 dependencies = [
  "lazy_static",
  "libc",
@@ -2296,7 +2296,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_derive"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#5f5d2d38d30c1e58a7cb641280e1e3e5f5deeb01"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#4c63286d104040ce644825c38d44998fdac3ce18"
 dependencies = [
  "luisa_compute_derive_impl",
  "syn 2.0.53",
@@ -2305,7 +2305,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_derive_impl"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#5f5d2d38d30c1e58a7cb641280e1e3e5f5deeb01"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#4c63286d104040ce644825c38d44998fdac3ce18"
 dependencies = [
  "prettyplease",
  "proc-macro2",
@@ -2316,7 +2316,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_ir"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#5f5d2d38d30c1e58a7cb641280e1e3e5f5deeb01"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#4c63286d104040ce644825c38d44998fdac3ce18"
 dependencies = [
  "base64ct",
  "bincode",
@@ -2338,7 +2338,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_sys"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#5f5d2d38d30c1e58a7cb641280e1e3e5f5deeb01"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#4c63286d104040ce644825c38d44998fdac3ce18"
 dependencies = [
  "cmake",
 ]
@@ -2346,7 +2346,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_track"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#5f5d2d38d30c1e58a7cb641280e1e3e5f5deeb01"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#4c63286d104040ce644825c38d44998fdac3ce18"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -3331,9 +3331,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.13.1"
+version = "1.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6ecd384b10a64542d77071bd64bd7b231f4ed5940fba55e98c3de13824cf3d7"
+checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
 dependencies = [
  "serde",
 ]
