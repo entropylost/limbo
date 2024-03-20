@@ -1,6 +1,5 @@
 use nalgebra::DMatrix;
 
-use super::delinearize_pass;
 use super::prelude::*;
 use crate::prelude::*;
 
@@ -63,7 +62,9 @@ fn dither_pass(
 pub struct DitherPlugin;
 impl Plugin for DitherPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup_texture)
-            .add_systems(BuildPostprocess, dither_pass.after(delinearize_pass));
+        app.add_systems(Startup, setup_texture).add_systems(
+            BuildPostprocess,
+            dither_pass.after(PostprocessPhase::Tonemap),
+        );
     }
 }

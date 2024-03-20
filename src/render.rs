@@ -8,14 +8,15 @@ use sefirot::mapping::buffer::StaticDomain;
 
 use crate::prelude::*;
 
+pub mod agx;
 pub mod debug;
 pub mod dither;
 pub mod light;
 
 pub mod prelude {
     pub use super::{
-        add_render, BuildPostprocess, PostprocessData, Render, RenderConstants, RenderFields,
-        RenderPhase,
+        add_render, BuildPostprocess, PostprocessData, PostprocessPhase, Render, RenderConstants,
+        RenderFields, RenderPhase,
     };
 }
 
@@ -23,17 +24,6 @@ pub mod prelude {
     ScheduleLabel, Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect,
 )]
 pub struct Render;
-
-#[derive(
-    ScheduleLabel, Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect,
-)]
-pub struct BuildPostprocess;
-
-pub struct PostprocessData {
-    pub world_el: Element<Expr<Vec2<i32>>>,
-    pub screen_pos: Expr<Vec2<u32>>,
-    pub color: Var<Vec3<f32>>,
-}
 
 #[derive(Debug, Resource, Deref, DerefMut)]
 pub struct RenderGraph(pub MirrorGraph);
@@ -58,6 +48,65 @@ pub fn add_render<
 pub enum RenderPhase {
     Light,
     Postprocess,
+}
+
+#[derive(Default, Resource, Debug, Clone, Copy)]
+pub struct RenderParameters {
+    pub view_center: Vector2<f32>,
+}
+
+#[derive(Resource, Debug, Clone, Copy)]
+pub struct RenderConstants {
+    pub scaling: u32,
+}
+impl Default for RenderConstants {
+    fn default() -> Self {
+        Self { scaling: 12 }
+    }
+}
+
+#[derive(Resource)]
+pub struct RenderFields {
+    // In world-space.
+    pub color: VField<Vec3<f32>, Vec2<i32>>,
+    pub screen_domain: StaticDomain<2>,
+    final_color: VField<Vec4<f32>, Vec2<u32>>,
+    _fields: FieldSet,
+}
+
+fn setup_fields(
+    mut commands: Commands,
+    device: Res<Device>,
+    world: Res<World>,
+    display: Query<&DisplayTexture>,
+) {
+    let display = display.single();
+    let mut fields = FieldSet::new();
+    let screen_domain = display.domain;
+    let color = fields.create_bind("render-color", world.create_texture(&device));
+    let final_color = display.color;
+    commands.insert_resource(RenderFields {
+        color,
+        screen_domain,
+        final_color,
+        _fields: fields,
+    })
+}
+
+#[derive(
+    ScheduleLabel, Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect,
+)]
+pub struct BuildPostprocess;
+
+pub struct PostprocessData {
+    pub world_el: Element<Expr<Vec2<i32>>>,
+    pub screen_pos: Expr<Vec2<u32>>,
+    pub color: Var<Vec3<f32>>,
+}
+
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PostprocessPhase {
+    Tonemap,
 }
 
 #[kernel(init = build_upscale_postprocess_kernel)]
@@ -97,11 +146,6 @@ fn upscale_postprocess_kernel(world: &mut BevyWorld) -> Kernel<fn(Vec2<i32>, Vec
     })
 }
 
-#[tracked]
-fn delinearize_pass(pixel: NonSend<PostprocessData>, constants: Res<RenderConstants>) {
-    *pixel.color = pixel.color.powf(1.0 / constants.gamma);
-}
-
 fn upscale_postprocess(
     constants: Res<RenderConstants>,
     parameters: Res<RenderParameters>,
@@ -118,54 +162,6 @@ fn upscale_postprocess(
     upscale_postprocess_kernel.dispatch(&Vec2::from(start_integral), &Vec2::from(offset))
 }
 
-#[derive(Default, Resource, Debug, Clone, Copy)]
-pub struct RenderParameters {
-    pub view_center: Vector2<f32>,
-}
-
-#[derive(Resource, Debug, Clone, Copy)]
-pub struct RenderConstants {
-    pub gamma: f32,
-    pub scaling: u32,
-}
-impl Default for RenderConstants {
-    fn default() -> Self {
-        Self {
-            gamma: 2.2,
-            scaling: 12,
-        }
-    }
-}
-
-#[derive(Resource)]
-pub struct RenderFields {
-    // In world-space.
-    pub color: VField<Vec3<f32>, Vec2<i32>>,
-    pub screen_domain: StaticDomain<2>,
-    final_color: VField<Vec4<f32>, Vec2<u32>>,
-    _fields: FieldSet,
-}
-
-fn setup_fields(
-    mut commands: Commands,
-    device: Res<Device>,
-    world: Res<World>,
-    display: Query<&DisplayTexture>,
-) {
-    let display = display.single();
-    let mut fields = FieldSet::new();
-    let screen_domain = display.domain;
-    let color = fields.create_bind("render-color", world.create_texture(&device));
-    let final_color = display.color;
-    commands.insert_resource(RenderFields {
-        color,
-        screen_domain,
-        final_color,
-        _fields: fields,
-    })
-}
-
-// TODO: Inserting this as a resource is kinda hacky.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RenderPlugin {
     pub parameters: RenderParameters,
@@ -194,7 +190,6 @@ impl Plugin for RenderPlugin {
                 run_schedule::<Render>.before(run_schedule::<WorldUpdate>),
             )
             .add_systems(HostUpdate, execute_graph::<RenderGraph>)
-            .add_systems(BuildPostprocess, delinearize_pass)
             .add_systems(
                 Render,
                 add_render(upscale_postprocess).in_set(RenderPhase::Postprocess),

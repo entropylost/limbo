@@ -6,6 +6,7 @@ use bevy_sefirot::prelude::*;
 use nalgebra::Vector2;
 use rapier2d::dynamics::{RigidBodyBuilder, RigidBodyHandle};
 use rapier2d::geometry::ColliderBuilder;
+use render::agx::AgXTonemapPlugin;
 
 use crate::render::debug::DebugPlugin;
 use crate::render::dither::DitherPlugin;
@@ -64,6 +65,7 @@ fn main() {
         .add_plugins(PhysicsPlugin)
         .add_plugins(ImfPlugin)
         .add_plugins(RenderPlugin::default())
+        .add_plugins(AgXTonemapPlugin)
         .add_plugins(DitherPlugin)
         .add_plugins(LightPlugin)
         .add_systems(Startup, setup)
