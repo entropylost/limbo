@@ -63,11 +63,11 @@ fn wall_kernel(
     constants: Res<LightConstants>,
     physics: Res<PhysicsFields>,
 ) -> Kernel<fn(Vec2<i32>)> {
-    Kernel::build(&device, &light.domain, &|el, offset| {
-        let world_el = el.at(el.cast_i32() / constants.scaling as i32 + offset);
+    Kernel::build(&device, &light.domain, &|cell, offset| {
+        let world_el = cell.at(cell.cast_i32() / constants.scaling as i32 + offset);
         if world.contains(&world_el) {
             let wall = physics.object.expr(&world_el) != NULL_OBJECT;
-            *light.wall.var(&el) = wall.cast_u32();
+            *light.wall.var(&cell) = wall.cast_u32();
         }
     })
 }
@@ -83,15 +83,15 @@ fn trace_kernel(
     let directions = constants.directions;
     let trace_length = constants.trace_size;
     let grid_size = constants.trace_size;
-    Kernel::build(&device, &light.trace_domain, &|el, t| {
+    Kernel::build(&device, &light.trace_domain, &|cell, t| {
         set_block_size([trace_size, 1, 1]);
-        let dir = el.y;
-        let index = el.x;
+        let dir = cell.y;
+        let index = cell.x;
 
         let angle = (dir.cast_f32() * TAU) / directions as f32 + 0.0001;
         let quadrant = (dir / (directions / 4)) % 4;
 
-        let radiance = light.sunlight.expr(&el.at(dir)).var();
+        let radiance = light.sunlight.expr(&cell.at(dir)).var();
 
         let ray_dir = Vec2::expr(angle.cos(), angle.sin());
         let delta_dist = 1.0 / ray_dir.abs();
@@ -158,12 +158,12 @@ fn trace_kernel(
 
             let pos = pos.cast_u32();
 
-            let wall = light.wall.expr(&el.at(pos)) != 0;
+            let wall = light.wall.expr(&cell.at(pos)) != 0;
             if wall {
                 *radiance = Vec3::splat(0.0); // wall / directions as f32;
             }
 
-            *light.radiance.var(&el.at(pos.extend(dir))) = radiance;
+            *light.radiance.var(&cell.at(pos.extend(dir))) = radiance;
         }
     })
 }
@@ -182,18 +182,18 @@ fn accumulate_kernel(
             light.domain.width() / constants.scaling,
             light.domain.height() / constants.scaling,
         ),
-        &|el, offset| {
+        &|cell, offset| {
             let radiance = Vec3::<f32>::var_zeroed();
             for dx in 0..constants.scaling {
                 for dy in 0..constants.scaling {
                     for dir in 0..constants.directions {
                         *radiance += light.radiance.expr(
-                            &el.at((constants.scaling * *el + Vec2::expr(dx, dy)).extend(dir)),
+                            &cell.at((constants.scaling * *cell + Vec2::expr(dx, dy)).extend(dir)),
                         );
                     }
                 }
             }
-            let world_el = el.at(el.cast_i32() + offset);
+            let world_el = cell.at(cell.cast_i32() + offset);
             if world.contains(&world_el) {
                 *render.color.var(&world_el) =
                     radiance / (constants.scaling * constants.scaling) as f32;

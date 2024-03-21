@@ -12,13 +12,13 @@ fn color_kernel(
     imf: Res<ImfFields>,
     render: Res<RenderFields>,
 ) -> Kernel<fn()> {
-    Kernel::build(&device, &**world, &|el| {
+    Kernel::build(&device, &**world, &|cell| {
         let color = if false {
             Vec3::expr(0.0, 0.0, 1.0)
         } else {
-            Vec3::expr(1.0, (imf.object.expr(&el) + 1).cast_f32(), 0.0) * imf.mass.expr(&el)
+            Vec3::expr(1.0, (imf.object.expr(&cell) + 1).cast_f32(), 0.0) * imf.mass.expr(&cell)
         };
-        *render.color.var(&el) = color;
+        *render.color.var(&cell) = color;
     })
 }
 

@@ -24,9 +24,9 @@ fn flow_update_kernel(
     flow: Res<FlowFields>,
     imf: Res<ImfFields>,
 ) -> Kernel<fn(u32)> {
-    Kernel::build(&device, &**world, &|el, t| {
-        if flow.activation.expr(&el) {
-            let vel = imf.velocity.expr(&el);
+    Kernel::build(&device, &**world, &|cell, t| {
+        if flow.activation.expr(&cell) {
+            let vel = imf.velocity.expr(&cell);
             let sign = vel.signum().cast_i32();
             let abs = vel.abs();
             let int = abs.floor();
@@ -37,16 +37,16 @@ fn flow_update_kernel(
             ) < frac)
                 .cast_i32()
                 + int.cast_i32();
-            let pos = *el + sign * abs;
+            let pos = *cell + sign * abs;
             if !world.contains(&pos) {
                 return;
             }
-            if (pos != *el).any() {
-                *flow.activation.var(&el.at(pos)) = true;
-                *flow.activation.var(&el) = false;
+            if (pos != *cell).any() {
+                *flow.activation.var(&cell.at(pos)) = true;
+                *flow.activation.var(&cell) = false;
             }
         } else if rand_f32(dispatch_id().xy(), t, 0) < 0.0001 {
-            *flow.activation.var(&el) = true;
+            *flow.activation.var(&cell) = true;
         }
     })
 }

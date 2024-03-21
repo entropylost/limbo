@@ -99,7 +99,7 @@ fn setup_fields(
 pub struct BuildPostprocess;
 
 pub struct PostprocessData {
-    pub world_el: Element<Expr<Vec2<i32>>>,
+    pub cell: Element<Expr<Vec2<i32>>>,
     pub subcell_pos: Expr<Vec2<u32>>,
     pub screen_pos: Expr<Vec2<u32>>,
     pub color: Var<Vec3<f32>>,
@@ -122,19 +122,19 @@ fn upscale_postprocess_kernel(world: &mut BevyWorld) -> Kernel<fn(Vec2<i32>, Vec
 
     let world_cell = StdCell::new(Some(world));
 
-    Kernel::build(&device, &screen_domain, &|el, start, offset| {
+    Kernel::build(&device, &screen_domain, &|pixel, start, offset| {
         // Upscale
         // May want to add subpixel antialiasing.
-        let pos = Vec2::expr(el.x, screen_domain.height() - 1 - el.y) + offset;
+        let pos = Vec2::expr(pixel.x, screen_domain.height() - 1 - pixel.y) + offset;
         let subcell_pos = pos % scaling;
         let pos = pos / scaling;
-        let world_el = el.at(start + pos.cast_i32());
-        let color = color_field.expr(&world_el).var();
+        let cell = pixel.at(start + pos.cast_i32());
+        let color = color_field.expr(&cell).var();
 
         let data = PostprocessData {
-            world_el,
+            cell,
             subcell_pos,
-            screen_pos: *el,
+            screen_pos: *pixel,
             color,
         };
 
@@ -146,7 +146,7 @@ fn upscale_postprocess_kernel(world: &mut BevyWorld) -> Kernel<fn(Vec2<i32>, Vec
 
         let data = world.remove_non_send_resource::<PostprocessData>().unwrap();
 
-        *final_color.var(&el) = data.color.extend(1.0);
+        *final_color.var(&pixel) = data.color.extend(1.0);
     })
 }
 
