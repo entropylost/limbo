@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::cell::Cell as StdCell;
 
 use bevy::ecs::schedule::{ExecutorKind, ScheduleLabel};
 use bevy_sefirot::display::{setup_display, DisplayTexture};
@@ -68,9 +68,9 @@ impl Default for RenderConstants {
 #[derive(Resource)]
 pub struct RenderFields {
     // In world-space.
-    pub color: VField<Vec3<f32>, Vec2<i32>>,
+    pub color: VField<Vec3<f32>, Cell>,
     pub screen_domain: StaticDomain<2>,
-    final_color: VField<Vec4<f32>, Vec2<u32>>,
+    final_color: VEField<Vec4<f32>, Vec2<u32>>,
     _fields: FieldSet,
 }
 
@@ -100,6 +100,7 @@ pub struct BuildPostprocess;
 
 pub struct PostprocessData {
     pub world_el: Element<Expr<Vec2<i32>>>,
+    pub subcell_pos: Expr<Vec2<u32>>,
     pub screen_pos: Expr<Vec2<u32>>,
     pub color: Var<Vec3<f32>>,
 }
@@ -119,17 +120,20 @@ fn upscale_postprocess_kernel(world: &mut BevyWorld) -> Kernel<fn(Vec2<i32>, Vec
     let constants = world.resource::<RenderConstants>();
     let scaling = constants.scaling;
 
-    let world_cell = Cell::new(Some(world));
+    let world_cell = StdCell::new(Some(world));
 
     Kernel::build(&device, &screen_domain, &|el, start, offset| {
         // Upscale
         // May want to add subpixel antialiasing.
-        let pos = (Vec2::expr(el.x, screen_domain.height() - 1 - el.y) + offset) / scaling;
+        let pos = Vec2::expr(el.x, screen_domain.height() - 1 - el.y) + offset;
+        let subcell_pos = pos % scaling;
+        let pos = pos / scaling;
         let world_el = el.at(start + pos.cast_i32());
         let color = color_field.expr(&world_el).var();
 
         let data = PostprocessData {
             world_el,
+            subcell_pos,
             screen_pos: *el,
             color,
         };

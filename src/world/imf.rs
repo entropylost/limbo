@@ -1,9 +1,6 @@
-use std::f32::consts::TAU;
-
 use super::direction::Direction;
 use super::physics::NULL_OBJECT;
 use crate::prelude::*;
-use crate::utils::rand_f32;
 use crate::world::physics::PhysicsFields;
 
 const OUTFLOW_SIZE: f32 = 0.1;
@@ -12,12 +9,12 @@ const MAX_VEL: f32 = 1.0 - OUTFLOW_SIZE;
 
 #[derive(Resource)]
 pub struct ImfFields {
-    pub mass: VField<f32, Vec2<i32>>,
-    pub next_mass: VField<f32, Vec2<i32>>,
-    pub velocity: VField<Vec2<f32>, Vec2<i32>>,
-    pub next_velocity: VField<Vec2<f32>, Vec2<i32>>,
-    pub object: VField<u32, Vec2<i32>>,
-    pub next_object: VField<u32, Vec2<i32>>,
+    pub mass: VField<f32, Cell>,
+    pub next_mass: VField<f32, Cell>,
+    pub velocity: VField<Vec2<f32>, Cell>,
+    pub next_velocity: VField<Vec2<f32>, Cell>,
+    pub object: VField<u32, Cell>,
+    pub next_object: VField<u32, Cell>,
     _fields: FieldSet,
 }
 
@@ -120,18 +117,13 @@ fn collide_kernel(
 ) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|el| {
         if physics.object.expr(&el) != NULL_OBJECT {
-            // let last_mass = imf.mass.expr(&el);
+            let last_mass = imf.mass.expr(&el);
             *imf.mass.var(&el) += 0.2;
             *imf.object.var(&el) = physics.object.expr(&el);
-            // *imf.velocity.var(&el) = ((imf.velocity.var(&el) * last_mass
-            //     + 0.2 * physics.velocity.expr(&el) / 60.0)
-            //     / imf.mass.expr(&el))
-            // .clamp(-MAX_VEL, MAX_VEL);
-            // Vec2::expr(
-            //     rand_f32((*el + 64_i32).cast_u32(), t, 0) - 0.5,
-            //     rand_f32((*el + 64_i32).cast_u32(), t, 1) - 0.5,
-            // )
-            // .normalize();
+            *imf.velocity.var(&el) = ((imf.velocity.var(&el) * last_mass
+                + 0.2 * physics.velocity.expr(&el) / 60.0)
+                / imf.mass.expr(&el))
+            .clamp(-MAX_VEL, MAX_VEL);
         }
     })
 }

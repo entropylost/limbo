@@ -15,9 +15,9 @@ pub struct LightFields {
     pub domain: StaticDomain<2>,
     trace_domain: StaticDomain<2>,
     _entire_domain: StaticDomain<3>,
-    pub wall: VField<u32, Vec2<u32>>,
-    pub radiance: VField<Vec3<f32>, Vec3<u32>>,
-    pub sunlight: VField<Vec3<f32>, u32>,
+    pub wall: VEField<u32, Vec2<u32>>,
+    pub radiance: VEField<Vec3<f32>, Vec3<u32>>,
+    pub sunlight: VEField<Vec3<f32>, u32>,
     _fields: FieldSet,
 }
 

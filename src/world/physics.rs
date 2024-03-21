@@ -13,10 +13,10 @@ pub struct ObjectId(u32);
 struct ObjectFields {
     // TODO: Change for resizing.
     pub domain: StaticDomain<1>,
-    pub position: VField<Vec2<f32>, u32>,
-    pub velocity: VField<Vec2<f32>, u32>,
-    pub angle: VField<f32, u32>,
-    pub angvel: VField<f32, u32>,
+    pub position: VEField<Vec2<f32>, u32>,
+    pub velocity: VEField<Vec2<f32>, u32>,
+    pub angle: VEField<f32, u32>,
+    pub angvel: VEField<f32, u32>,
     _fields: FieldSet,
     buffers: ObjectBuffers,
 }
@@ -32,8 +32,8 @@ pub const NULL_OBJECT: u32 = u32::MAX;
 
 #[derive(Resource)]
 pub struct PhysicsFields {
-    pub object: VField<u32, Vec2<i32>>,
-    pub velocity: VField<Vec2<f32>, Vec2<i32>>,
+    pub object: VField<u32, Cell>,
+    pub velocity: VField<Vec2<f32>, Cell>,
     _fields: FieldSet,
     object_buffer: Buffer<u32>,
 }
