@@ -152,7 +152,7 @@ fn collide_kernel(
             *imf.mass.var(&el) += 0.1;
             *imf.object.var(&el) = physics.object.expr(&el);
             *imf.velocity.var(&el) = ((imf.velocity.var(&el) * last_mass
-                + 0.1 * physics.velocity.expr(&el) / 60.0)
+                + 0.1 * physics.velocity.expr(&el))
                 / imf.mass.expr(&el))
             .clamp(-MAX_VEL, MAX_VEL);
         }
