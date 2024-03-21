@@ -43,9 +43,10 @@ fn divergence_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>
             let offset = Vec2::from(offset);
             let oel = el.at(*el + offset);
             *pressure += imf.next_mass.expr(&oel);
-            *divergence += imf.next_velocity.expr(&oel).dot(dir.as_vec_f32());
+            // TODO: This should use the velocity after advection.
+            *divergence += imf.velocity.expr(&oel).dot(dir.as_vec_f32());
         }
-        let pressure_force = 0.05 * divergence; // (pressure - 6.0);
+        let pressure_force = -0.25 * divergence;
         for dir in Direction::iter_diag() {
             let offset = dir.as_vector().map(|x| x.max(0));
             let offset = Vec2::from(offset);
@@ -152,10 +153,11 @@ fn collide_kernel(
             let last_mass = imf.mass.expr(&el);
             *imf.mass.var(&el) += 0.1;
             *imf.object.var(&el) = physics.object.expr(&el);
-            *imf.velocity.var(&el) = ((imf.velocity.var(&el) * last_mass
-                + 0.1 * physics.velocity.expr(&el))
-                / imf.mass.expr(&el))
-            .clamp(-MAX_VEL, MAX_VEL);
+            *imf.velocity.var(&el) = Vec2::new(0.4, 0.1);
+            // ((imf.velocity.var(&el) * last_mass
+            //     + 0.1 * physics.velocity.expr(&el))
+            //     / imf.mass.expr(&el))
+            // .clamp(-MAX_VEL, MAX_VEL);
         }
     })
 }
@@ -169,8 +171,8 @@ fn collide_null_kernel(
 ) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|el| {
         if physics.object.expr(&el) == 0 {
-            *imf.next_mass.var(&el) = 0.0;
-            // *imf.velocity.var(&el) = physics.velocity.expr(&el);
+            // *imf.next_mass.var(&el) = 0.0;
+            *imf.next_velocity.var(&el) = Vec2::expr(0.0, 0.4);
         }
     })
 }
