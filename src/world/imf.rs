@@ -33,8 +33,18 @@ fn setup_imf(mut commands: Commands, device: Res<Device>, world: Res<World>) {
 }
 
 #[kernel]
-fn divergence_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> Kernel<fn()> {
-    Kernel::build(&device, &world.margolus(), &|el| {
+fn divergence_kernel(
+    device: Res<Device>,
+    world: Res<World>,
+    imf: Res<ImfFields>,
+) -> Kernel<fn(u32)> {
+    Kernel::build(&device, &world.margolus(), &|el, i| {
+        use luisa::lang::ops::RemEuclidExpr;
+        let i = i.cast_i32() % 4;
+        if el.x.rem_euclid(2) != i / 2 || el.y.rem_euclid(2) != i % 2 {
+            return;
+        }
+
         // const MAX_PRESSURE: f32 = 6.0;
         let pressure = f32::var_zeroed();
         let divergence = f32::var_zeroed();
@@ -47,7 +57,7 @@ fn divergence_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>
             *divergence +=
                 imf.next_velocity.expr(&oel).dot(dir.as_vec_f32()) * imf.next_mass.expr(&oel);
         }
-        let pressure_force = pressure * 0.01 - 0.25 * 0.8_f32 * divergence;
+        let pressure_force = (pressure - 0.5) * 0.002 - 0.25 * 0.8_f32 * divergence;
         for dir in Direction::iter_diag() {
             let offset = dir.as_vector().map(|x| x.max(0));
             let offset = Vec2::from(offset);
@@ -178,12 +188,13 @@ fn collide_null_kernel(
     })
 }
 
-pub fn update_imf() -> impl AsNodes {
+pub fn update_imf(mut i: Local<u32>) -> impl AsNodes {
+    *i += 1;
     (
         collide_kernel.dispatch(),
         advect_kernel.dispatch(),
         collide_null_kernel.dispatch(),
-        divergence_kernel.dispatch(),
+        divergence_kernel.dispatch(&*i),
         copy_kernel.dispatch(),
     )
         .chain()

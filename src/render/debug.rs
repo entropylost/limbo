@@ -14,10 +14,10 @@ fn color_kernel(
 ) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|el| {
         let color = if false {
-            //  flow.activation.expr(&el)
             Vec3::expr(0.0, 0.0, 1.0)
         } else {
             Vec3::expr(1.0, (imf.object.expr(&el) + 1).cast_f32(), 0.0) * imf.mass.expr(&el)
+            //.norm()
         };
         *render.color.var(&el) = color;
     })
