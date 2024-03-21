@@ -1,5 +1,6 @@
 use super::prelude::*;
 pub use crate::prelude::*;
+use crate::world::flow::FlowFields;
 use crate::world::imf::ImfFields;
 use crate::world::physics::{PhysicsFields, NULL_OBJECT};
 
@@ -7,16 +8,16 @@ use crate::world::physics::{PhysicsFields, NULL_OBJECT};
 fn color_kernel(
     device: Res<Device>,
     world: Res<World>,
-    physics: Res<PhysicsFields>,
+    flow: Res<FlowFields>,
     imf: Res<ImfFields>,
     render: Res<RenderFields>,
 ) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|el| {
-        let object = physics.object.expr(&el);
-        let color = if true {
-            Vec3::expr(1.0, (imf.object.expr(&el) + 1).cast_f32(), 0.0) * imf.mass.expr(&el)
+        let color = if false {
+            // flow.activation.expr(&el)
+            Vec3::expr(0.0, 0.0, 1.0)
         } else {
-            Vec3::splat_expr(1.0)
+            Vec3::expr(1.0, (imf.object.expr(&el) + 1).cast_f32(), 0.0) * imf.mass.expr(&el)
         };
         *render.color.var(&el) = color;
     })

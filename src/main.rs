@@ -7,6 +7,7 @@ use nalgebra::Vector2;
 use rapier2d::dynamics::{RigidBodyBuilder, RigidBodyHandle};
 use rapier2d::geometry::ColliderBuilder;
 use render::agx::AgXTonemapPlugin;
+use world::flow::FlowPlugin;
 
 use crate::render::debug::DebugPlugin;
 use crate::render::dither::DitherPlugin;
@@ -64,6 +65,7 @@ fn main() {
         .add_plugins(WorldPlugin)
         .add_plugins(PhysicsPlugin)
         .add_plugins(ImfPlugin)
+        .add_plugins(FlowPlugin)
         .add_plugins(RenderPlugin::default())
         .add_plugins(AgXTonemapPlugin)
         .add_plugins(DitherPlugin)
@@ -103,7 +105,7 @@ fn apply_player_force(
             player.apply_impulse(force, true);
         }
         if input.pressed(KeyCode::Space) {
-            player.set_linvel(Vector2::new(0.3, 0.0), true);
+            player.set_linvel(Vector2::new(0.0, 0.0), true);
         }
     }
 }
@@ -133,11 +135,11 @@ fn setup(mut commands: Commands, mut rb_context: ResMut<RigidBodyContext>) {
     //      .build();
     //  let collider = ColliderBuilder::cuboid(6.0, 50.0).build();
     //  rb_context.insert2(body, collider);
-    let body = RigidBodyBuilder::fixed()
-        .translation(Vector2::new(100.0, 20.0))
-        .build();
-    let collider = ColliderBuilder::cuboid(6.0, 50.0).build();
-    rb_context.insert2(body, collider);
+    // let body = RigidBodyBuilder::fixed()
+    //     .translation(Vector2::new(100.0, 20.0))
+    //     .build();
+    // let collider = ColliderBuilder::cuboid(6.0, 50.0).build();
+    // rb_context.insert2(body, collider);
     let body = RigidBodyBuilder::fixed()
         .translation(Vector2::new(64.0, 20.0))
         .build();

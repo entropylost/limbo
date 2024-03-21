@@ -2,6 +2,7 @@ use crate::prelude::*;
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Value)]
+// TODO: Can represent this as a position in a 3x3 space.
 pub enum Direction {
     Null = 0,
     Left = 1,
@@ -67,7 +68,13 @@ impl Direction {
     pub fn as_vector(self) -> Vector2<i32> {
         Self::vector_table()[self as usize]
     }
+    pub fn as_vector_f32(self) -> Vector2<f32> {
+        self.as_vector().cast()
+    }
     pub fn as_vec(self) -> Vec2<i32> {
         self.as_vector().into()
+    }
+    pub fn as_vec_f32(self) -> Vec2<f32> {
+        self.as_vector().cast().into()
     }
 }
