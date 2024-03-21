@@ -28,13 +28,15 @@ fn flow_update_kernel(
         if flow.activation.expr(&el) {
             let vel = imf.velocity.expr(&el);
             let sign = vel.signum().cast_i32();
-            let frac = vel.abs();
+            let abs = vel.abs();
+            let int = abs.floor();
+            let frac = abs - int;
             let abs = (Vec2::expr(
                 rand_f32(dispatch_id().xy(), t, 1),
                 rand_f32(dispatch_id().xy(), t, 2),
-            ) * 3.0
-                < frac)
-                .cast_i32();
+            ) < frac)
+                .cast_i32()
+                + int.cast_i32();
             let pos = *el + sign * abs;
             if !world.contains(&pos) {
                 return;

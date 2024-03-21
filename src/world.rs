@@ -126,7 +126,8 @@ impl Plugin for WorldPlugin {
                 (
                     (
                         run_schedule::<WorldUpdate>,
-                        (execute_graph::<UpdateGraph>, run_schedule::<HostUpdate>),
+                        execute_graph::<UpdateGraph>,
+                        run_schedule::<HostUpdate>,
                     )
                         .chain()
                         .run_if(in_state(WorldState::Running)),
