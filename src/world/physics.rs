@@ -226,8 +226,8 @@ impl Plugin for PhysicsPlugin {
         app.insert_resource(RigidBodyContext {
             gravity: Vector2::new(0.0, 0.0),
             integration_parameters: IntegrationParameters {
-                // dt: 1.0,
-                // min_ccd_dt: 1.0 / 100.0,
+                dt: 1.0,
+                min_ccd_dt: 1.0 / 100.0,
                 ..default()
             },
             ..default()

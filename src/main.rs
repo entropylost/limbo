@@ -99,11 +99,11 @@ fn apply_player_force(
             force.y -= 1.0;
         }
         if force.norm() > 0.0 {
-            let force = force.normalize() * 30.0;
+            let force = force.normalize() / 2.0;
             player.apply_impulse(force, true);
         }
         if input.pressed(KeyCode::Space) {
-            player.set_linvel(Vector2::new(0.0, 0.0), true);
+            player.set_linvel(Vector2::new(0.3, 0.0), true);
         }
     }
 }
@@ -133,20 +133,21 @@ fn setup(mut commands: Commands, mut rb_context: ResMut<RigidBodyContext>) {
     //      .build();
     //  let collider = ColliderBuilder::cuboid(6.0, 50.0).build();
     //  rb_context.insert2(body, collider);
-    //  let body = RigidBodyBuilder::fixed()
-    //      .translation(Vector2::new(100.0, 20.0))
-    //      .build();
-    //  let collider = ColliderBuilder::cuboid(6.0, 50.0).build();
-    //  rb_context.insert2(body, collider);
+    let body = RigidBodyBuilder::fixed()
+        .translation(Vector2::new(100.0, 20.0))
+        .build();
+    let collider = ColliderBuilder::cuboid(6.0, 50.0).build();
+    rb_context.insert2(body, collider);
     let body = RigidBodyBuilder::fixed()
         .translation(Vector2::new(64.0, 20.0))
         .build();
     let collider = ColliderBuilder::cuboid(5.0, 5.0).build();
     rb_context.insert2(body, collider);
-    let player = RigidBodyBuilder::dynamic()
+    let mut player = RigidBodyBuilder::dynamic()
         .translation(Vector2::new(10.0, 64.0))
         .lock_rotations()
         .build();
+    player.activation_mut().linear_threshold = 0.1;
     let player_collider = ColliderBuilder::cuboid(5.0, 5.0).build();
     let player = rb_context.insert2(player, player_collider);
     commands.spawn((Player { body: player }, ActivePlayer));
