@@ -103,7 +103,7 @@ fn apply_player_force(
             player.apply_impulse(force, true);
         }
         if input.pressed(KeyCode::Space) {
-            player.set_linvel(Vector2::new(player.linvel().x, 20.0), true);
+            player.set_linvel(Vector2::new(0.0, 0.0), true);
         }
     }
 }

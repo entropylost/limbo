@@ -65,8 +65,10 @@ fn copy_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> K
 #[kernel]
 fn advect_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|el| {
-        let momentum = Vec2::<f32>::var_zeroed();
-        let mass = f32::var_zeroed();
+        let objects = [NULL_OBJECT; 9].var();
+        let masses = [0.0_f32; 9].var();
+        let momenta = [Vec2::splat(0.0_f32); 9].var();
+
         for dx in -1..=1 {
             for dy in -1..=1 {
                 let pos = el.at(Vec2::expr(dx, dy) + *el);
@@ -84,11 +86,40 @@ fn advect_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) ->
                 );
                 let weight = intersect.x * intersect.y;
                 let transferred_mass = imf.mass.expr(&pos) * weight;
-                *mass += transferred_mass;
-                *momentum += transferred_mass * vel;
+                let object = imf.object.expr(&pos);
+                for i in 0_u32..9_u32 {
+                    if objects.read(i) == object {
+                        masses.write(i, masses.read(i) + transferred_mass);
+                        momenta.write(i, momenta.read(i) + vel * transferred_mass);
+                        break;
+                    } else if objects.read(i) == NULL_OBJECT {
+                        objects.write(i, object);
+                        masses.write(i, masses.read(i) + transferred_mass);
+                        momenta.write(i, momenta.read(i) + vel * transferred_mass);
+                        break;
+                    }
+                }
             }
         }
-        if mass > 0.001 {
+
+        let max_index = 0_u32.var();
+        let max_mass = f32::var_zeroed();
+        let mass_sum = f32::var_zeroed();
+        let momentum_sum = Vec2::<f32>::var_zeroed();
+
+        for i in 0_u32..9 {
+            if masses.read(i) >= max_mass {
+                *max_mass = masses.read(i);
+                *max_index = i;
+            }
+            *mass_sum += masses.read(i);
+            *momentum_sum += momenta.read(i);
+        }
+
+        let mass = luisa::max(max_mass * 2.0 - mass_sum, 0.0);
+        let momentum = momenta[max_index] * 2.0 - momentum_sum;
+
+        if mass > 0.0001 {
             *imf.next_mass.var(&el) = mass;
             *imf.next_velocity.var(&el) = momentum / mass;
             let lookup = *el - imf.next_velocity.expr(&el).normalize().round().cast_i32();
