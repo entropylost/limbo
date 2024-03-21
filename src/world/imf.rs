@@ -34,8 +34,8 @@ fn setup_imf(mut commands: Commands, device: Res<Device>, world: Res<World>) {
 
 #[kernel]
 fn divergence_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> Kernel<fn()> {
-    const MAX_PRESSURE: f32 = 6.0;
     Kernel::build(&device, &world.margolus(), &|el| {
+        // const MAX_PRESSURE: f32 = 6.0;
         let pressure = f32::var_zeroed();
         for dir in Direction::iter_diag() {
             let offset = dir.as_vector().map(|x| x.max(0));
@@ -43,12 +43,12 @@ fn divergence_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>
             let oel = el.at(*el + offset);
             *pressure += imf.next_mass.expr(&oel);
         }
-        let pressure_force = luisa::max(pressure - MAX_PRESSURE, 0.0);
+        let pressure_force = 0.05 * pressure;
         for dir in Direction::iter_diag() {
             let offset = dir.as_vector().map(|x| x.max(0));
             let offset = Vec2::from(offset);
             let oel = el.at(*el + offset);
-            *imf.next_velocity.var(&oel) += 0.1 * dir.as_vec().expr().cast_f32() * pressure_force;
+            *imf.next_velocity.var(&oel) += dir.as_vec().expr().cast_f32() * pressure_force;
         }
     })
 }
@@ -91,7 +91,7 @@ fn advect_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) ->
         if mass > 0.001 {
             *imf.next_mass.var(&el) = mass;
             *imf.next_velocity.var(&el) = momentum / mass;
-            let lookup = *el - imf.next_velocity.expr(&el).signum().cast_i32();
+            let lookup = *el - imf.next_velocity.expr(&el).normalize().round().cast_i32();
             *imf.next_object.var(&el) = imf.object.expr(&el.at(lookup));
         } else {
             *imf.next_mass.var(&el) = mass;
@@ -118,10 +118,10 @@ fn collide_kernel(
     Kernel::build(&device, &**world, &|el| {
         if physics.object.expr(&el) != NULL_OBJECT {
             let last_mass = imf.mass.expr(&el);
-            *imf.mass.var(&el) += 0.2;
+            *imf.mass.var(&el) += 0.1;
             *imf.object.var(&el) = physics.object.expr(&el);
             *imf.velocity.var(&el) = ((imf.velocity.var(&el) * last_mass
-                + 0.2 * physics.velocity.expr(&el) / 60.0)
+                + 0.1 * physics.velocity.expr(&el) / 60.0)
                 / imf.mass.expr(&el))
             .clamp(-MAX_VEL, MAX_VEL);
         }
