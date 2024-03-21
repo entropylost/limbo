@@ -9,6 +9,9 @@ const MAX_VEL: f32 = 1.0 - OUTFLOW_SIZE;
 
 #[derive(Resource)]
 pub struct ImfFields {
+    pub divergence: VField<f32, Cell>,
+    pub edgevel: VField<f32, Edge>,
+    pub accel: VField<Vec2<f32>, Cell>,
     pub mass: VField<f32, Cell>,
     pub next_mass: VField<f32, Cell>,
     pub velocity: VField<Vec2<f32>, Cell>,
@@ -21,6 +24,9 @@ pub struct ImfFields {
 fn setup_imf(mut commands: Commands, device: Res<Device>, world: Res<World>) {
     let mut fields = FieldSet::new();
     let imf = ImfFields {
+        divergence: fields.create_bind("imf-divergence", world.create_texture(&device)),
+        edgevel: fields.create_bind("imf-edgevel", world.dual.create_texture(&device)),
+        accel: fields.create_bind("imf-accel", world.create_texture(&device)),
         mass: *fields.create_bind("imf-mass", world.create_buffer(&device)),
         next_mass: *fields.create_bind("imf-next-mass", world.create_buffer(&device)),
         velocity: fields.create_bind("imf-velocity", world.create_texture(&device)),
@@ -34,6 +40,35 @@ fn setup_imf(mut commands: Commands, device: Res<Device>, world: Res<World>) {
 
 #[kernel]
 fn divergence_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> Kernel<fn()> {
+    Kernel::build(&device, &world.checkerboard(), &|el| {
+        let divergence = f32::var_zeroed();
+        for dir in GridDirection::iter_all() {
+            let edge = world.dual.in_dir(&el, dir);
+            *divergence += imf.edgevel.expr(&edge) * dir.signf();
+        }
+        let expected_divergence = imf.divergence.expr(&el);
+        let delta = (expected_divergence - divergence) / 4.0;
+        for dir in GridDirection::iter_all() {
+            let edge = world.dual.in_dir(&el, dir);
+            *imf.edgevel.var(&edge) += delta * dir.signf();
+        }
+    })
+}
+
+#[kernel]
+fn accel_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> Kernel<fn()> {
+    Kernel::build(&device, &**world, &|el| {
+        let accel = Vec2::<f32>::var_zeroed();
+        for dir in GridDirection::iter_all() {
+            let edge = world.dual.in_dir(&el, dir);
+            *accel += imf.edgevel.expr(&edge) * dir.as_vec_f32() * dir.signf();
+        }
+        *imf.accel.var(&el) = accel;
+    })
+}
+
+#[kernel]
+fn pressure_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> Kernel<fn()> {
     Kernel::build(&device, &world.margolus(), &|el| {
         // const MAX_PRESSURE: f32 = 6.0;
         let pressure = f32::var_zeroed();
@@ -48,7 +83,7 @@ fn divergence_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>
             let offset = dir.as_vector().map(|x| x.max(0));
             let offset = Vec2::from(offset);
             let oel = el.at(*el + offset);
-            *imf.next_velocity.var(&oel) += dir.as_vec().expr().cast_f32() * pressure_force;
+            *imf.next_velocity.var(&oel) += dir.as_vec_f32() * pressure_force;
         }
     })
 }
@@ -57,7 +92,8 @@ fn divergence_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>
 fn copy_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|el| {
         *imf.mass.var(&el) = imf.next_mass.expr(&el) * 0.99;
-        *imf.velocity.var(&el) = (imf.next_velocity.expr(&el)).clamp(-MAX_VEL, MAX_VEL);
+        *imf.velocity.var(&el) =
+            (imf.next_velocity.expr(&el) + 0.01 * imf.accel.expr(&el)).clamp(-MAX_VEL, MAX_VEL);
         *imf.object.var(&el) = imf.next_object.expr(&el);
     })
 }
@@ -119,15 +155,13 @@ fn advect_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) ->
         let mass = luisa::max(max_mass * 2.0 - mass_sum, 0.0);
         let momentum = momenta[max_index] * 2.0 - momentum_sum;
 
-        if mass > 0.0001 {
-            *imf.next_mass.var(&el) = mass;
-            *imf.next_velocity.var(&el) = momentum / mass;
-            let lookup = *el - imf.next_velocity.expr(&el).normalize().round().cast_i32();
-            *imf.next_object.var(&el) = imf.object.expr(&el.at(lookup));
+        *imf.next_mass.var(&el) = mass;
+        *imf.next_velocity.var(&el) = if mass > 0.0001 {
+            momentum / mass
         } else {
-            *imf.next_mass.var(&el) = mass;
-            *imf.next_velocity.var(&el) = Vec2::expr(0.0, 0.0);
-        }
+            Vec2::expr(0.0, 0.0)
+        };
+        *imf.next_object.var(&el) = objects.read(max_index);
     })
 }
 
@@ -146,7 +180,7 @@ fn collide_kernel(
     physics: Res<PhysicsFields>,
 ) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|el| {
-        if physics.object.expr(&el) != NULL_OBJECT {
+        if physics.object.expr(&el) == 1 || physics.object.expr(&el) == 2 {
             let last_mass = imf.mass.expr(&el);
             *imf.mass.var(&el) += 0.1;
             *imf.object.var(&el) = physics.object.expr(&el);
@@ -155,14 +189,23 @@ fn collide_kernel(
                 / imf.mass.expr(&el))
             .clamp(-MAX_VEL, MAX_VEL);
         }
+        if physics.object.expr(&el) == 1 || physics.object.expr(&el) == 2 {
+            *imf.divergence.var(&el) = 1.0;
+        } else if physics.object.expr(&el) == 0 {
+            *imf.divergence.var(&el) = -3.0;
+        } else {
+            *imf.divergence.var(&el) = 0.0;
+        }
     })
 }
 
 pub fn update_imf() -> impl AsNodes {
     (
         collide_kernel.dispatch(),
-        advect_kernel.dispatch(),
         divergence_kernel.dispatch(),
+        accel_kernel.dispatch(),
+        advect_kernel.dispatch(),
+        pressure_kernel.dispatch(),
         copy_kernel.dispatch(),
     )
         .chain()
@@ -175,11 +218,13 @@ impl Plugin for ImfPlugin {
             .add_systems(
                 InitKernel,
                 (
+                    init_divergence_kernel,
+                    init_accel_kernel,
                     init_advect_kernel,
                     init_load_kernel,
                     init_copy_kernel,
                     init_collide_kernel,
-                    init_divergence_kernel,
+                    init_pressure_kernel,
                 ),
             )
             .add_systems(WorldInit, add_init(load))

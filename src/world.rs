@@ -1,5 +1,6 @@
 use bevy::ecs::schedule::ScheduleLabel;
 use bevy_sefirot::MirrorGraph;
+use sefirot_grid::dual::DualGrid;
 use sefirot_grid::GridDomain;
 
 use crate::prelude::*;
@@ -71,13 +72,16 @@ pub enum UpdatePhase {
 
 #[derive(Resource, Deref)]
 pub struct World {
-    pub domain: GridDomain,
+    #[deref]
+    pub grid: GridDomain,
+    pub dual: DualGrid,
 }
 
 impl FromWorld for World {
     fn from_world(_world: &mut BevyWorld) -> Self {
-        let domain = GridDomain::new_wrapping([-64, -64], [256, 256]).with_morton();
-        World { domain }
+        let grid = GridDomain::new_wrapping([-64, -64], [256, 256]).with_morton();
+        let dual = grid.dual();
+        World { grid, dual }
     }
 }
 

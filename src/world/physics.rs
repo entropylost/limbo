@@ -206,7 +206,7 @@ fn derive_velocity_kernel(
     physics: Res<PhysicsFields>,
     objects: Res<ObjectFields>,
 ) -> Kernel<fn()> {
-    Kernel::build(&device, &world.domain, &|el| {
+    Kernel::build(&device, &**world, &|el| {
         let obj = physics.object.expr(&el);
         if obj == NULL_OBJECT {
             return;

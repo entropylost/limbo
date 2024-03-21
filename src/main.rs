@@ -140,11 +140,14 @@ fn setup(mut commands: Commands, mut rb_context: ResMut<RigidBodyContext>) {
     //     .build();
     // let collider = ColliderBuilder::cuboid(6.0, 50.0).build();
     // rb_context.insert2(body, collider);
+
+    // 0
     let body = RigidBodyBuilder::fixed()
         .translation(Vector2::new(64.0, 20.0))
         .build();
     let collider = ColliderBuilder::cuboid(5.0, 5.0).build();
     rb_context.insert2(body, collider);
+    // 1
     let mut player = RigidBodyBuilder::dynamic()
         .translation(Vector2::new(10.0, 64.0))
         .lock_rotations()
@@ -153,4 +156,10 @@ fn setup(mut commands: Commands, mut rb_context: ResMut<RigidBodyContext>) {
     let player_collider = ColliderBuilder::cuboid(5.0, 5.0).build();
     let player = rb_context.insert2(player, player_collider);
     commands.spawn((Player { body: player }, ActivePlayer));
+    // 2
+    let body = RigidBodyBuilder::fixed()
+        .translation(Vector2::new(0.0, 20.0))
+        .build();
+    let collider = ColliderBuilder::cuboid(5.0, 5.0).build();
+    rb_context.insert2(body, collider);
 }

@@ -51,7 +51,7 @@ pub fn hash(x: Expr<u32>) -> Expr<u32> {
 
 #[tracked]
 pub fn rand(pos: Expr<Vec2<u32>>, t: Expr<u32>, c: u32) -> Expr<u32> {
-    let input = t + pos.x * 179 + pos.y * 1531 + c * 7919; //* GRID_SIZE * GRID_SIZE * GRID_SIZE;
+    let input = pos.x + pos.y * 256 + c * 7919 + t * 2796203; //* GRID_SIZE * GRID_SIZE * GRID_SIZE;
     hash(input)
 }
 
