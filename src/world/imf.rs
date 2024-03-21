@@ -44,14 +44,16 @@ fn divergence_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>
             let oel = el.at(*el + offset);
             *pressure += imf.next_mass.expr(&oel);
             // TODO: This should use the velocity after advection.
-            *divergence += imf.velocity.expr(&oel).dot(dir.as_vec_f32());
+            *divergence +=
+                imf.next_velocity.expr(&oel).dot(dir.as_vec_f32()) * imf.next_mass.expr(&oel);
         }
-        let pressure_force = -0.25 * divergence;
+        let pressure_force = pressure * 0.01 - 0.25 * 0.8_f32 * divergence;
         for dir in Direction::iter_diag() {
             let offset = dir.as_vector().map(|x| x.max(0));
             let offset = Vec2::from(offset);
             let oel = el.at(*el + offset);
-            *imf.next_velocity.var(&oel) += dir.as_vec_f32() * pressure_force;
+            *imf.next_velocity.var(&oel) +=
+                dir.as_vec_f32() * pressure_force / (imf.next_mass.expr(&oel) + 0.00001);
         }
     })
 }
@@ -153,11 +155,10 @@ fn collide_kernel(
             let last_mass = imf.mass.expr(&el);
             *imf.mass.var(&el) += 0.1;
             *imf.object.var(&el) = physics.object.expr(&el);
-            *imf.velocity.var(&el) = Vec2::new(0.4, 0.1);
-            // ((imf.velocity.var(&el) * last_mass
-            //     + 0.1 * physics.velocity.expr(&el))
-            //     / imf.mass.expr(&el))
-            // .clamp(-MAX_VEL, MAX_VEL);
+            *imf.velocity.var(&el) = ((imf.velocity.var(&el) * last_mass
+                + 0.1 * physics.velocity.expr(&el))
+                / imf.mass.expr(&el))
+            .clamp(-MAX_VEL, MAX_VEL);
         }
     })
 }
@@ -171,8 +172,8 @@ fn collide_null_kernel(
 ) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|el| {
         if physics.object.expr(&el) == 0 {
-            // *imf.next_mass.var(&el) = 0.0;
-            *imf.next_velocity.var(&el) = Vec2::expr(0.0, 0.4);
+            *imf.next_mass.var(&el) = 0.0;
+            // *imf.next_velocity.var(&el) = Vec2::expr(0.0, 0.4);
         }
     })
 }
