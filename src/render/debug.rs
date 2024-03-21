@@ -16,9 +16,7 @@ fn color_kernel(
         let color = if flow.activation.expr(&el) {
             Vec3::expr(0.0, 0.0, 1.0)
         } else {
-            Vec3::expr(1.0, (imf.object.expr(&el) + 1).cast_f32(), 0.0)
-                * imf.next_velocity.expr(&el).norm()
-            //.norm()
+            Vec3::expr(1.0, (imf.object.expr(&el) + 1).cast_f32(), 0.0) * imf.mass.expr(&el)
         };
         *render.color.var(&el) = color;
     })

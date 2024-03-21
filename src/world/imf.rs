@@ -33,35 +33,22 @@ fn setup_imf(mut commands: Commands, device: Res<Device>, world: Res<World>) {
 }
 
 #[kernel]
-fn divergence_kernel(
-    device: Res<Device>,
-    world: Res<World>,
-    imf: Res<ImfFields>,
-) -> Kernel<fn(u32)> {
-    Kernel::build(&device, &**world, &|el, i| {
-        use luisa::lang::ops::RemEuclidExpr;
-        let i = i.cast_i32() % 4;
-        if el.x.rem_euclid(2) != i / 2 || el.y.rem_euclid(2) != i % 2 {
-            return;
-        }
-
+fn divergence_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> Kernel<fn()> {
+    Kernel::build(&device, &world.margolus(), &|el| {
         // const MAX_PRESSURE: f32 = 6.0;
         let pressure = f32::var_zeroed();
-        let divergence = f32::var_zeroed();
         for dir in Direction::iter_diag() {
             let offset = dir.as_vector().map(|x| x.max(0));
             let offset = Vec2::from(offset);
             let oel = el.at(*el + offset);
             *pressure += imf.next_mass.expr(&oel);
-            // TODO: This should use the velocity after advection.
-            *divergence += imf.next_velocity.expr(&oel).dot(dir.as_vec_f32()); // * imf.next_mass.expr(&oel);
         }
-        let pressure_force = pressure * 0.5 - 0.25 * 0.8_f32 * divergence;
+        let pressure_force = 0.05 * pressure;
         for dir in Direction::iter_diag() {
             let offset = dir.as_vector().map(|x| x.max(0));
             let offset = Vec2::from(offset);
             let oel = el.at(*el + offset);
-            *imf.next_velocity.var(&oel) += dir.as_vec_f32() * pressure_force; // / (imf.next_mass.expr(&oel) + 0.00001);
+            *imf.next_velocity.var(&oel) += dir.as_vec().expr().cast_f32() * pressure_force;
         }
     })
 }
@@ -69,21 +56,15 @@ fn divergence_kernel(
 #[kernel]
 fn copy_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|el| {
-        // *imf.mass.var(&el) = imf.next_mass.expr(&el) * 0.99;
-        // *imf.velocity.var(&el) = (imf.next_velocity.expr(&el)).clamp(-MAX_VEL, MAX_VEL);
-        // *imf.object.var(&el) = imf.next_object.expr(&el);
+        *imf.mass.var(&el) = imf.next_mass.expr(&el) * 0.99;
+        *imf.velocity.var(&el) = (imf.next_velocity.expr(&el)).clamp(-MAX_VEL, MAX_VEL);
+        *imf.object.var(&el) = imf.next_object.expr(&el);
     })
 }
 
 #[kernel]
 fn advect_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|el| {
-        // *imf.next_mass.var(&el) = imf.mass.expr(&el);
-        // *imf.next_velocity.var(&el) = imf.velocity.expr(&el);
-        // *imf.next_object.var(&el) = imf.object.expr(&el);
-        return;
-
-        // TODO: Track highest index.
         let objects = [NULL_OBJECT; 9].var();
         let masses = [0.0_f32; 9].var();
         let momenta = [Vec2::splat(0.0_f32); 9].var();
@@ -141,7 +122,8 @@ fn advect_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) ->
         if mass > 0.0001 {
             *imf.next_mass.var(&el) = mass;
             *imf.next_velocity.var(&el) = momentum / mass;
-            *imf.next_object.var(&el) = objects.read(max_index);
+            let lookup = *el - imf.next_velocity.expr(&el).normalize().round().cast_i32();
+            *imf.next_object.var(&el) = imf.object.expr(&el.at(lookup));
         } else {
             *imf.next_mass.var(&el) = mass;
             *imf.next_velocity.var(&el) = Vec2::expr(0.0, 0.0);
@@ -164,43 +146,24 @@ fn collide_kernel(
     physics: Res<PhysicsFields>,
 ) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|el| {
-        if physics.object.expr(&el) == 1 {
+        if physics.object.expr(&el) != NULL_OBJECT {
             let last_mass = imf.mass.expr(&el);
-            *imf.mass.var(&el) = 1.0;
+            *imf.mass.var(&el) += 0.1;
             *imf.object.var(&el) = physics.object.expr(&el);
-            // *imf.velocity.var(&el) = ((imf.velocity.var(&el) * last_mass
-            //     + 0.1 * physics.velocity.expr(&el))
-            //     / imf.mass.expr(&el))
-            // .clamp(-MAX_VEL, MAX_VEL);
+            *imf.velocity.var(&el) = ((imf.velocity.var(&el) * last_mass
+                + 0.1 * physics.velocity.expr(&el))
+                / imf.mass.expr(&el))
+            .clamp(-MAX_VEL, MAX_VEL);
         }
     })
 }
 
-#[kernel]
-fn collide_null_kernel(
-    device: Res<Device>,
-    world: Res<World>,
-    imf: Res<ImfFields>,
-    physics: Res<PhysicsFields>,
-) -> Kernel<fn()> {
-    Kernel::build(&device, &**world, &|el| {
-        if physics.object.expr(&el) == 1 {
-            *imf.next_mass.var(&el) = 1.0;
-        } else if (el.cast_f32() - Vec2::new(64.0, 0.0)).norm() < 10.0 {
-            *imf.next_mass.var(&el) = 1.0;
-            // *imf.next_velocity.var(&el) =
-            //     -(el.cast_f32() - Vec2::new(64.0, 0.0)).normalize() * MAX_VEL;
-        } else {
-            *imf.next_mass.var(&el) = 0.0;
-        }
-    })
-}
-
-pub fn update_imf(mut i: Local<u32>) -> impl AsNodes {
-    *i += 1;
+pub fn update_imf() -> impl AsNodes {
     (
-        collide_null_kernel.dispatch(),
-        divergence_kernel.dispatch(&*i),
+        collide_kernel.dispatch(),
+        advect_kernel.dispatch(),
+        divergence_kernel.dispatch(),
+        copy_kernel.dispatch(),
     )
         .chain()
 }
@@ -216,7 +179,6 @@ impl Plugin for ImfPlugin {
                     init_load_kernel,
                     init_copy_kernel,
                     init_collide_kernel,
-                    init_collide_null_kernel,
                     init_divergence_kernel,
                 ),
             )
