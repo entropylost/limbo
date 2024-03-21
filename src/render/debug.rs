@@ -16,7 +16,7 @@ fn color_kernel(
         let color = if false {
             Vec3::expr(0.0, 0.0, 1.0)
         } else {
-            Vec3::expr(1.0, (imf.object.expr(&el) + 1).cast_f32(), 0.0) * imf.accel.expr(&el).norm()
+            Vec3::expr(1.0, (imf.object.expr(&el) + 1).cast_f32(), 0.0) * imf.mass.expr(&el)
         };
         *render.color.var(&el) = color;
     })
