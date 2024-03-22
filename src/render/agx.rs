@@ -1,6 +1,10 @@
 // Taken from https://www.shadertoy.com/view/cd3XWr
 // and https://iolite-engine.com/blog_posts/minimal_agx_implementation
 
+// Also take a look at
+// https://www.shadertoy.com/view/Dt3XDr
+// and https://www.shadertoy.com/view/clGGWG
+
 // MIT License
 //
 // Copyright (c) 2024 Missing Deadlines (Benjamin Wrensch)

@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use bevy::window::WindowResolution;
 use bevy_sefirot::display::DisplayPlugin;
 use bevy_sefirot::prelude::*;
-use nalgebra::Vector2;
+use nalgebra::{UnitComplex, Vector2};
 use rapier2d::dynamics::{RigidBodyBuilder, RigidBodyHandle};
 use rapier2d::geometry::ColliderBuilder;
 use render::agx::AgXTonemapPlugin;
@@ -64,12 +64,12 @@ fn main() {
         .add_plugins(DisplayPlugin)
         .add_plugins(WorldPlugin)
         .add_plugins(PhysicsPlugin)
-        .add_plugins(ImfPlugin)
-        .add_plugins(FlowPlugin)
+        // .add_plugins(ImfPlugin)
+        // .add_plugins(FlowPlugin)
         .add_plugins(RenderPlugin::default())
         .add_plugins(AgXTonemapPlugin)
         .add_plugins(DitherPlugin)
-        .add_plugins(DebugPlugin)
+        .add_plugins(LightPlugin)
         .add_systems(Startup, setup)
         .add_systems(PreUpdate, (apply_player_force, update_viewport).chain())
         .run();
@@ -142,24 +142,12 @@ fn setup(mut commands: Commands, mut rb_context: ResMut<RigidBodyContext>) {
     // rb_context.insert2(body, collider);
 
     // 0
-    let body = RigidBodyBuilder::fixed()
-        .translation(Vector2::new(64.0, 20.0))
-        .build();
-    let collider = ColliderBuilder::cuboid(5.0, 5.0).build();
-    rb_context.insert2(body, collider);
-    // 1
     let mut player = RigidBodyBuilder::dynamic()
-        .translation(Vector2::new(10.0, 64.0))
+        .translation(Vector2::new(64.0, 64.0))
         .lock_rotations()
         .build();
     player.activation_mut().linear_threshold = 0.1;
-    let player_collider = ColliderBuilder::cuboid(5.0, 5.0).build();
+    let player_collider = ColliderBuilder::cuboid(60.0, 5.0).build();
     let player = rb_context.insert2(player, player_collider);
     commands.spawn((Player { body: player }, ActivePlayer));
-    // 2
-    let body = RigidBodyBuilder::fixed()
-        .translation(Vector2::new(0.0, 20.0))
-        .build();
-    let collider = ColliderBuilder::cuboid(5.0, 5.0).build();
-    rb_context.insert2(body, collider);
 }

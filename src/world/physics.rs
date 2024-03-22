@@ -1,18 +1,23 @@
+use std::f32::consts::TAU;
+
 use bevy::utils::HashMap;
 use id_newtype::UniqueId;
 use morton::interleave_morton;
 use rapier2d::prelude::*;
 use sefirot::mapping::buffer::StaticDomain;
+use sefirot::utils::Singleton;
 
 use crate::prelude::*;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, UniqueId)]
+#[repr(transparent)]
 pub struct ObjectId(u32);
 
 #[derive(Resource)]
 struct ObjectFields {
     // TODO: Change for resizing.
     pub domain: StaticDomain<1>,
+    // Also change these to use ObjectId instead.
     pub position: VEField<Vec2<f32>, u32>,
     pub velocity: VEField<Vec2<f32>, u32>,
     pub angle: VEField<f32, u32>,
@@ -33,9 +38,19 @@ pub const NULL_OBJECT: u32 = u32::MAX;
 #[derive(Resource)]
 pub struct PhysicsFields {
     pub object: VField<u32, Cell>,
+    object_staging: VField<u32, Cell>,
+    pub delta: VField<Vec2<i32>, Cell>,
     pub velocity: VField<Vec2<f32>, Cell>,
     _fields: FieldSet,
     object_buffer: Buffer<u32>,
+}
+
+#[derive(Resource)]
+pub struct SolidFields {
+    solid_domain: StaticDomain<1>,
+    solid_index: VField<u32, Cell>,
+    solid_counter: Singleton<u32>,
+    parent: AEField<u32, u32>,
 }
 
 #[derive(Default, Resource)]
@@ -124,18 +139,36 @@ fn setup_physics(mut commands: Commands, device: Res<Device>, world: Res<World>)
     };
     let mut fields = FieldSet::new();
     let object_buffer = device.create_buffer(256 * 256);
-    let object = *fields.create_bind("physics-objects", world.map_buffer(object_buffer.view(..)));
+    let object = *fields.create_bind("physics-object", world.map_buffer(object_buffer.view(..)));
+    let object_staging =
+        *fields.create_bind("physics-object-staging", world.create_buffer(&device));
+    let delta = fields.create_bind("physics-delta", world.create_texture(&device));
     let velocity = fields.create_bind("physics-velocity", world.create_texture(&device));
+
+    let solid_domain = StaticDomain::<1>::new(6000); // Random number really.
+    let solid_index = *fields.create_bind("solid-index", world.create_buffer(&device));
+    let solid_counter = Singleton::new(&device);
+    let parent = fields.create_bind("solid-parent", solid_domain.create_buffer(&device));
 
     let physics = PhysicsFields {
         object,
+        object_staging,
+        delta,
         velocity,
         _fields: fields,
         object_buffer,
     };
 
+    let solids = SolidFields {
+        solid_domain,
+        solid_index,
+        solid_counter,
+        parent,
+    };
+
     commands.insert_resource(objects);
     commands.insert_resource(physics);
+    commands.insert_resource(solids);
 }
 
 #[derive(Resource, Default)]
@@ -190,6 +223,9 @@ fn update_objects(
     objects: Res<ObjectFields>,
     mut staging: ResMut<ObjectFieldStaging>,
 ) -> impl AsNodes {
+    if staging.physics_objects.is_none() {
+        return ().into_node_configs();
+    }
     let staging_objects = staging.physics_objects.take().unwrap();
     let staging_velocity = staging.object_velocity.take().unwrap();
 
@@ -197,6 +233,66 @@ fn update_objects(
         physics.object_buffer.copy_from_vec(staging_objects),
         objects.buffers.velocity.copy_from_vec(staging_velocity),
     )
+        .into_node_configs()
+}
+
+#[kernel]
+fn skew_x_kernel(
+    device: Res<Device>,
+    world: Res<World>,
+    physics: Res<PhysicsFields>,
+) -> Kernel<fn(f32)> {
+    Kernel::build(&device, &**world, &|cell, skew| {
+        *physics.next_object.var(&cell) = physics.object.expr(&cell.at(Vec2::expr(
+            cell.x - (cell.y.cast_f32() * skew).round().cast_i32(),
+            cell.y,
+        )));
+    })
+}
+#[kernel]
+fn skew_y_kernel(
+    device: Res<Device>,
+    world: Res<World>,
+    physics: Res<PhysicsFields>,
+) -> Kernel<fn(f32)> {
+    Kernel::build(&device, &**world, &|cell, skew| {
+        *physics.next_object.var(&cell) = physics.object.expr(&cell.at(Vec2::expr(
+            cell.x,
+            cell.y - (cell.x.cast_f32() * skew).round().cast_i32(),
+        )));
+    })
+}
+
+#[kernel]
+fn copyback_kernel(
+    device: Res<Device>,
+    world: Res<World>,
+    physics: Res<PhysicsFields>,
+) -> Kernel<fn()> {
+    Kernel::build(&device, &**world, &|cell| {
+        *physics.object.var(&cell) = physics.next_object.expr(&cell);
+    })
+}
+
+fn world_rotate(mut angle: Local<f32>) -> impl AsNodes {
+    // let last_angle = *angle;
+    *angle += 0.1 * TAU / 360.0;
+    println!("Angle: {:?}", angle);
+    (
+        // skew_x_kernel.dispatch(&(*angle / 2.0).tan()),
+        // copyback_kernel.dispatch(),
+        // skew_y_kernel.dispatch(&-angle.sin()),
+        // copyback_kernel.dispatch(),
+        // skew_x_kernel.dispatch(&(*angle / 2.0).tan()),
+        // copyback_kernel.dispatch(),
+        skew_x_kernel.dispatch(&-(*angle / 2.0).tan()),
+        copyback_kernel.dispatch(),
+        skew_y_kernel.dispatch(&angle.sin()),
+        copyback_kernel.dispatch(),
+        skew_x_kernel.dispatch(&-(*angle / 2.0).tan()),
+        copyback_kernel.dispatch(),
+    )
+        .chain()
 }
 
 #[kernel(run)]
@@ -234,13 +330,19 @@ impl Plugin for PhysicsPlugin {
         })
         .init_resource::<ObjectFieldStaging>()
         .add_systems(Startup, setup_physics)
-        .add_systems(InitKernel, init_derive_velocity_kernel)
+        .add_systems(
+            InitKernel,
+            (
+                init_copyback_kernel,
+                init_skew_x_kernel,
+                init_skew_y_kernel,
+                init_derive_velocity_kernel,
+            ),
+        )
         .add_systems(PostStartup, compute_object_staging)
         .add_systems(
             WorldUpdate,
-            (add_update(update_objects), add_update(derive_velocity))
-                .chain()
-                .in_set(UpdatePhase::CopyBodiesFromHost),
+            (add_update(update_objects), add_update(world_rotate)).chain(),
         )
         .add_systems(HostUpdate, (update_bodies, compute_object_staging).chain());
     }
