@@ -12,8 +12,9 @@ fn color_kernel(
     render: Res<RenderFields>,
 ) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|cell| {
-        let color = if physics.object.expr(&cell) != NULL_OBJECT
-            || physics.next_object.expr(&cell) != NULL_OBJECT
+        let color = if false
+        // if physics.object.expr(&cell) != NULL_OBJECT
+        //     || physics.next_object.expr(&cell) != NULL_OBJECT
         {
             Vec3::expr(1.0, 0.0, 0.0)
         } else {

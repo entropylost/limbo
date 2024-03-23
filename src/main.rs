@@ -1,3 +1,5 @@
+use std::f32::consts::PI;
+
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::prelude::*;
 use bevy::window::WindowResolution;
@@ -87,6 +89,7 @@ fn apply_player_force(
 ) {
     for player in players.iter() {
         let player = &mut rb_context.bodies[player.body];
+        // player.set_rotation(UnitComplex::from_angle(PI / 2.0), true);
         let mut force = Vector2::zeros();
         if input.pressed(KeyCode::KeyA) {
             force.x -= 1.0;
@@ -135,19 +138,21 @@ fn setup(mut commands: Commands, mut rb_context: ResMut<RigidBodyContext>) {
     //      .build();
     //  let collider = ColliderBuilder::cuboid(6.0, 50.0).build();
     //  rb_context.insert2(body, collider);
-    // let body = RigidBodyBuilder::fixed()
-    //     .translation(Vector2::new(100.0, 20.0))
-    //     .build();
-    // let collider = ColliderBuilder::cuboid(6.0, 50.0).build();
-    // rb_context.insert2(body, collider);
+    let body = RigidBodyBuilder::fixed()
+        .translation(Vector2::new(64.0, 20.0))
+        .build();
+    let collider = ColliderBuilder::cuboid(50.0, 6.0).build();
+    rb_context.insert2(body, collider);
 
     // 0
     let mut player = RigidBodyBuilder::dynamic()
         .translation(Vector2::new(64.0, 64.0))
-        .lock_rotations()
+        // .lock_rotations()
+        // .angvel(0.01)
         .build();
     player.activation_mut().linear_threshold = 0.1;
-    let player_collider = ColliderBuilder::cuboid(60.0, 5.0).build();
+    player.activation_mut().angular_threshold = 0.001;
+    let player_collider = ColliderBuilder::cuboid(20.0, 6.0).build();
     let player = rb_context.insert2(player, player_collider);
     commands.spawn((Player { body: player }, ActivePlayer));
 }

@@ -5,31 +5,38 @@ use id_newtype::UniqueId;
 use morton::interleave_morton;
 use rapier2d::prelude::*;
 use sefirot::mapping::buffer::StaticDomain;
-use sefirot::utils::Singleton;
 
 use crate::prelude::*;
 
+const NUM_OBJECTS: u32 = 16;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, UniqueId)]
 #[repr(transparent)]
-pub struct ObjectId(u32);
+pub struct ObjectHost(u32);
+
+pub type Object = Expr<u32>;
 
 #[derive(Resource)]
 struct ObjectFields {
     // TODO: Change for resizing.
     pub domain: StaticDomain<1>,
     // Also change these to use ObjectId instead.
-    pub position: VEField<Vec2<f32>, u32>,
-    pub velocity: VEField<Vec2<f32>, u32>,
-    pub angle: VEField<f32, u32>,
-    pub angvel: VEField<f32, u32>,
+    pub position: VField<Vec2<i32>, Object>,
+    pub last_position: VField<Vec2<i32>, Object>,
+    pub velocity: VField<Vec2<f32>, Object>,
+    pub angle: VField<f32, Object>,
+    pub last_angle: VField<f32, Object>,
+    pub angvel: VField<f32, Object>,
     _fields: FieldSet,
     buffers: ObjectBuffers,
 }
 
 struct ObjectBuffers {
-    position: Buffer<Vec2<f32>>,
+    position: Buffer<Vec2<i32>>,
+    last_position: Buffer<Vec2<i32>>,
     velocity: Buffer<Vec2<f32>>,
     angle: Buffer<f32>,
+    last_angle: Buffer<f32>,
     angvel: Buffer<f32>,
 }
 
@@ -43,21 +50,14 @@ pub struct PhysicsFields {
     pub velocity: VField<Vec2<f32>, Cell>,
     _fields: FieldSet,
     object_buffer: Buffer<u32>,
-}
-
-#[derive(Resource)]
-pub struct SolidFields {
-    solid_domain: StaticDomain<1>,
-    solid_index: VField<u32, Cell>,
-    solid_counter: Singleton<u32>,
-    parent: AEField<u32, u32>,
+    object_staging_buffer: Buffer<u32>,
 }
 
 #[derive(Default, Resource)]
 pub struct RigidBodyContext {
     pub gravity: Vector2<f32>,
     pub bodies: RigidBodySet,
-    pub object_map: HashMap<RigidBodyHandle, ObjectId>,
+    pub object_map: HashMap<RigidBodyHandle, ObjectHost>,
     pub colliders: ColliderSet,
     pub integration_parameters: IntegrationParameters,
     pub physics_pipeline: PhysicsPipeline,
@@ -95,22 +95,27 @@ impl RigidBodyContext {
         let _collider = self
             .colliders
             .insert_with_parent(collider, body, &mut self.bodies);
-        self.object_map.insert(body, ObjectId::unique());
+        self.object_map.insert(body, ObjectHost::unique());
         body
     }
 }
 
 fn setup_physics(mut commands: Commands, device: Res<Device>, world: Res<World>) {
-    const NUM_OBJECTS: u32 = 16;
     let obj_domain = StaticDomain::<1>::new(NUM_OBJECTS);
     let mut obj_fields = FieldSet::new();
     let position_buffer = device.create_buffer(NUM_OBJECTS as usize);
+    let last_position_buffer = device.create_buffer(NUM_OBJECTS as usize);
     let velocity_buffer = device.create_buffer(NUM_OBJECTS as usize);
     let angle_buffer = device.create_buffer(NUM_OBJECTS as usize);
+    let last_angle_buffer = device.create_buffer(NUM_OBJECTS as usize);
     let angvel_buffer = device.create_buffer(NUM_OBJECTS as usize);
     let position = obj_fields.create_bind(
         "object-position",
         obj_domain.map_buffer(position_buffer.view(..)),
+    );
+    let last_position = obj_fields.create_bind(
+        "object-last-position",
+        obj_domain.map_buffer(last_position_buffer.view(..)),
     );
     let velocity = obj_fields.create_bind(
         "object-velocity",
@@ -118,12 +123,18 @@ fn setup_physics(mut commands: Commands, device: Res<Device>, world: Res<World>)
     );
     let angle =
         obj_fields.create_bind("object-angle", obj_domain.map_buffer(angle_buffer.view(..)));
+    let last_angle = obj_fields.create_bind(
+        "object-last-angle",
+        obj_domain.map_buffer(last_angle_buffer.view(..)),
+    );
     let angvel = obj_fields.create_bind(
         "object-angvel",
         obj_domain.map_buffer(angvel_buffer.view(..)),
     );
     let object_buffers = ObjectBuffers {
         position: position_buffer,
+        last_position: last_position_buffer,
+        last_angle: last_angle_buffer,
         velocity: velocity_buffer,
         angle: angle_buffer,
         angvel: angvel_buffer,
@@ -131,6 +142,8 @@ fn setup_physics(mut commands: Commands, device: Res<Device>, world: Res<World>)
     let objects = ObjectFields {
         domain: obj_domain,
         position,
+        last_position,
+        last_angle,
         velocity,
         angle,
         angvel,
@@ -138,17 +151,15 @@ fn setup_physics(mut commands: Commands, device: Res<Device>, world: Res<World>)
         buffers: object_buffers,
     };
     let mut fields = FieldSet::new();
-    let object_buffer = device.create_buffer(256 * 256);
+    let object_buffer = device.create_buffer((world.width() * world.height()) as usize);
+    let object_staging_buffer = device.create_buffer((world.width() * world.height()) as usize);
     let object = *fields.create_bind("physics-object", world.map_buffer(object_buffer.view(..)));
-    let object_staging =
-        *fields.create_bind("physics-object-staging", world.create_buffer(&device));
+    let object_staging = *fields.create_bind(
+        "physics-object-staging",
+        world.map_buffer(object_staging_buffer.view(..)),
+    );
     let delta = fields.create_bind("physics-delta", world.create_texture(&device));
     let velocity = fields.create_bind("physics-velocity", world.create_texture(&device));
-
-    let solid_domain = StaticDomain::<1>::new(6000); // Random number really.
-    let solid_index = *fields.create_bind("solid-index", world.create_buffer(&device));
-    let solid_counter = Singleton::new(&device);
-    let parent = fields.create_bind("solid-parent", solid_domain.create_buffer(&device));
 
     let physics = PhysicsFields {
         object,
@@ -157,39 +168,38 @@ fn setup_physics(mut commands: Commands, device: Res<Device>, world: Res<World>)
         velocity,
         _fields: fields,
         object_buffer,
-    };
-
-    let solids = SolidFields {
-        solid_domain,
-        solid_index,
-        solid_counter,
-        parent,
+        object_staging_buffer,
     };
 
     commands.insert_resource(objects);
     commands.insert_resource(physics);
-    commands.insert_resource(solids);
 }
 
 #[derive(Resource, Default)]
-struct ObjectFieldStaging {
-    physics_objects: Option<Vec<u32>>,
-    object_velocity: Option<Vec<Vec2<f32>>>,
+struct ExtractResource(Option<ExtractData>);
+
+struct ExtractData {
+    physics_objects: Vec<u32>,
+    object_position: Vec<Vec2<i32>>,
+    object_velocity: Vec<Vec2<f32>>,
+    object_angle: Vec<f32>,
+    object_angvel: Vec<f32>,
 }
 
 fn compute_object_staging(
     rb_context: Res<RigidBodyContext>,
-    mut staging: ResMut<ObjectFieldStaging>,
+    mut staging_res: ResMut<ExtractResource>,
 ) {
     // TODO: Do something else since this is just dumb.
-    assert!(staging.physics_objects.is_none());
-    let mut values = vec![NULL_OBJECT; 256 * 256];
+    assert!(staging_res.0.is_none());
+    let mut objects = vec![NULL_OBJECT; 256 * 256];
 
+    // Shouldn't actually use this. Use previous frame with object separations.
     for (_handle, collider) in rb_context.colliders.iter() {
         let object = rb_context.object_map[&collider.parent().unwrap()].0;
         let aabb = collider.compute_aabb();
-        let min = aabb.mins.map(|x| x.round() as i32);
-        let max = aabb.maxs.map(|x| x.round() as i32);
+        let min = aabb.mins.map(|x| x.floor() as i32);
+        let max = aabb.maxs.map(|x| x.ceil() as i32);
         for x in min.x..=max.x {
             for y in min.y..=max.y {
                 let pos = Vector2::new(x, y).cast::<f32>() + Vector2::repeat(0.5);
@@ -200,115 +210,185 @@ fn compute_object_staging(
                     let data_pos = Vector2::new(x, y) + Vector2::repeat(64);
                     let data_pos = data_pos.map(|x| x.rem_euclid(256));
                     let i = interleave_morton(data_pos.x as u16, data_pos.y as u16);
-                    values[i as usize] = values[i as usize].min(object);
+                    objects[i as usize] = objects[i as usize].min(object);
                 }
             }
         }
     }
-
-    staging.physics_objects = Some(values);
-
-    assert!(staging.object_velocity.is_none());
-    let mut velocities = rb_context
-        .bodies
-        .iter()
-        .map(|(_, body)| Vec2::from(*body.linvel()))
-        .collect::<Vec<_>>();
-    velocities.resize(16, Vec2::splat(0.0));
-    staging.object_velocity = Some(velocities);
+    let mut staging = ExtractData {
+        physics_objects: objects,
+        object_position: vec![Vec2::splat(0); 16],
+        object_velocity: vec![Vec2::splat(0.0); 16],
+        object_angle: vec![0.0; 16],
+        object_angvel: vec![0.0; 16],
+    };
+    for (handle, body) in rb_context.bodies.iter() {
+        let object = rb_context.object_map[&handle].0;
+        let i = object as usize;
+        staging.object_position[i] = Vec2::from(body.translation().map(|x| x.round() as i32));
+        staging.object_velocity[i] = Vec2::from(*body.linvel());
+        staging.object_angle[i] = body.rotation().angle();
+        staging.object_angvel[i] = body.angvel();
+    }
+    staging_res.0 = Some(staging);
 }
 
-fn update_objects(
+fn extract_to_device(
     physics: Res<PhysicsFields>,
     objects: Res<ObjectFields>,
-    mut staging: ResMut<ObjectFieldStaging>,
+    mut staging_res: ResMut<ExtractResource>,
+    mut not_first: Local<bool>,
 ) -> impl AsNodes {
-    if staging.physics_objects.is_none() {
-        return ().into_node_configs();
+    let staging = staging_res.0.take().unwrap();
+
+    let extract = (
+        (
+            objects
+                .buffers
+                .position
+                .copy_to_buffer_async(&objects.buffers.last_position),
+            objects
+                .buffers
+                .position
+                .copy_from_vec(staging.object_position.clone()),
+        )
+            .chain(),
+        objects
+            .buffers
+            .velocity
+            .copy_from_vec(staging.object_velocity),
+        (
+            objects
+                .buffers
+                .angle
+                .copy_to_buffer_async(&objects.buffers.last_angle),
+            objects.buffers.angle.copy_from_vec(staging.object_angle),
+        )
+            .chain(),
+        objects.buffers.angvel.copy_from_vec(staging.object_angvel),
+    );
+    if *not_first {
+        (
+            physics
+                .object_buffer
+                .copy_to_buffer_async(&physics.object_staging_buffer),
+            extract,
+        )
+            .into_node_configs()
+    } else {
+        *not_first = true;
+        (
+            physics
+                .object_staging_buffer
+                .copy_from_vec(staging.physics_objects),
+            extract,
+            objects
+                .buffers
+                .last_position
+                .copy_from_vec(staging.object_position),
+        )
+            .chain()
+            .into_node_configs()
     }
-    let staging_objects = staging.physics_objects.take().unwrap();
-    let staging_velocity = staging.object_velocity.take().unwrap();
-
-    (
-        physics.object_buffer.copy_from_vec(staging_objects),
-        objects.buffers.velocity.copy_from_vec(staging_velocity),
-    )
-        .into_node_configs()
 }
 
-#[kernel]
-fn skew_x_kernel(
-    device: Res<Device>,
-    world: Res<World>,
-    physics: Res<PhysicsFields>,
-) -> Kernel<fn(f32)> {
-    Kernel::build(&device, &**world, &|cell, skew| {
-        *physics.next_object.var(&cell) = physics.object.expr(&cell.at(Vec2::expr(
-            cell.x - (cell.y.cast_f32() * skew).round().cast_i32(),
-            cell.y,
-        )));
-    })
-}
-#[kernel]
-fn skew_y_kernel(
-    device: Res<Device>,
-    world: Res<World>,
-    physics: Res<PhysicsFields>,
-) -> Kernel<fn(f32)> {
-    Kernel::build(&device, &**world, &|cell, skew| {
-        *physics.next_object.var(&cell) = physics.object.expr(&cell.at(Vec2::expr(
-            cell.x,
-            cell.y - (cell.x.cast_f32() * skew).round().cast_i32(),
-        )));
-    })
+// fn extract_to_host() -> impl AsNodes {
+//     todo!();
+// }
+
+#[tracked]
+fn skew_rotate(v: Expr<Vec2<i32>>, angle: Expr<f32>) -> Expr<Vec2<i32>> {
+    let a = -(angle / 2.0).tan();
+    let b = angle.sin();
+    let x = v.x;
+    let y = v.y;
+    let x = x + (y.cast_f32() * a).round().cast_i32();
+    let y = y + (x.cast_f32() * b).round().cast_i32();
+    let x = x + (y.cast_f32() * a).round().cast_i32();
+    Vec2::expr(x, y)
 }
 
-#[kernel]
-fn copyback_kernel(
-    device: Res<Device>,
-    world: Res<World>,
-    physics: Res<PhysicsFields>,
-) -> Kernel<fn()> {
-    Kernel::build(&device, &**world, &|cell| {
-        *physics.object.var(&cell) = physics.next_object.expr(&cell);
-    })
+#[tracked]
+fn skew_rotate_quadrant(v: Expr<Vec2<i32>>, angle: Expr<f32>) -> Expr<Vec2<i32>> {
+    let angle = angle - quadrant(angle).cast_f32() * TAU / 4.0;
+    skew_rotate(v, angle)
 }
 
-fn world_rotate(mut angle: Local<f32>) -> impl AsNodes {
-    // let last_angle = *angle;
-    *angle += 0.1 * TAU / 360.0;
-    println!("Angle: {:?}", angle);
-    (
-        // skew_x_kernel.dispatch(&(*angle / 2.0).tan()),
-        // copyback_kernel.dispatch(),
-        // skew_y_kernel.dispatch(&-angle.sin()),
-        // copyback_kernel.dispatch(),
-        // skew_x_kernel.dispatch(&(*angle / 2.0).tan()),
-        // copyback_kernel.dispatch(),
-        skew_x_kernel.dispatch(&-(*angle / 2.0).tan()),
-        copyback_kernel.dispatch(),
-        skew_y_kernel.dispatch(&angle.sin()),
-        copyback_kernel.dispatch(),
-        skew_x_kernel.dispatch(&-(*angle / 2.0).tan()),
-        copyback_kernel.dispatch(),
-    )
-        .chain()
+#[tracked]
+fn quadrant_rotate(v: Expr<Vec2<i32>>, quadrant: Expr<i32>) -> Expr<Vec2<i32>> {
+    let quadrant = quadrant.rem_euclid(4);
+    let v = if quadrant % 2 == 1 {
+        Vec2::expr(-v.y, v.x)
+    } else {
+        v
+    };
+    if quadrant >= 2 {
+        -v
+    } else {
+        v
+    }
+}
+
+#[tracked]
+fn quadrant(angle: Expr<f32>) -> Expr<i32> {
+    (angle * 4.0 / TAU).round().cast_i32().rem_euclid(4)
 }
 
 #[kernel(run)]
-fn derive_velocity_kernel(
+fn clear_objects_kernel(
+    device: Res<Device>,
+    physics: Res<PhysicsFields>,
+    world: Res<World>,
+) -> Kernel<fn()> {
+    Kernel::build(&device, &**world, &|cell| {
+        *physics.object.var(&cell) = NULL_OBJECT;
+    })
+}
+
+#[kernel(run)]
+fn update_objects_kernel(
     device: Res<Device>,
     world: Res<World>,
     physics: Res<PhysicsFields>,
     objects: Res<ObjectFields>,
 ) -> Kernel<fn()> {
-    Kernel::build(&device, &**world, &|el| {
-        let obj = physics.object.expr(&el);
+    Kernel::build(&device, &**world, &|cell| {
+        let obj = physics.object_staging.expr(&cell);
         if obj == NULL_OBJECT {
             return;
         }
-        let vel = objects.velocity.expr(&el.at(obj));
-        *physics.velocity.var(&el) = vel;
+        let obj = cell.at(obj);
+        let diff = *cell - objects.last_position.expr(&obj);
+        let last_angle = objects.last_angle.expr(&obj);
+        let angle = objects.angle.expr(&obj);
+        let inverted_diff =
+            skew_rotate_quadrant(quadrant_rotate(diff, -quadrant(last_angle)), -last_angle);
+        let rotated_diff =
+            quadrant_rotate(skew_rotate_quadrant(inverted_diff, angle), quadrant(angle));
+        let new_pos = objects.position.expr(&obj) + rotated_diff;
+        *physics.object.var(&cell.at(new_pos)) = *obj;
+        *physics.delta.var(&cell) = new_pos - *cell;
+    })
+}
+
+#[kernel(run)]
+fn update_fields_kernel(
+    device: Res<Device>,
+    world: Res<World>,
+    physics: Res<PhysicsFields>,
+    objects: Res<ObjectFields>,
+) -> Kernel<fn()> {
+    Kernel::build(&device, &**world, &|cell| {
+        let obj = physics.object.expr(&cell);
+        if obj == NULL_OBJECT {
+            return;
+        }
+        let obj = cell.at(obj);
+        // TODO: This can be done more efficiently in update_objects; but the physics.angle thing needs to be done after,
+        // should be swapped to double-buffering.
+        let diff = (*cell - objects.position.expr(&obj)).cast_f32();
+        *physics.velocity.var(&cell) =
+            objects.velocity.expr(&obj) + objects.angvel.expr(&obj) * Vec2::expr(-diff.y, diff.x);
     })
 }
 
@@ -328,21 +408,27 @@ impl Plugin for PhysicsPlugin {
             },
             ..default()
         })
-        .init_resource::<ObjectFieldStaging>()
+        .init_resource::<ExtractResource>()
         .add_systems(Startup, setup_physics)
         .add_systems(
             InitKernel,
             (
-                init_copyback_kernel,
-                init_skew_x_kernel,
-                init_skew_y_kernel,
-                init_derive_velocity_kernel,
+                init_update_objects_kernel,
+                init_update_fields_kernel,
+                init_clear_objects_kernel,
             ),
         )
         .add_systems(PostStartup, compute_object_staging)
         .add_systems(
             WorldUpdate,
-            (add_update(update_objects), add_update(world_rotate)).chain(),
+            (
+                add_update(extract_to_device),
+                add_update(clear_objects),
+                add_update(update_objects),
+                add_update(update_fields),
+            )
+                .chain()
+                .in_set(UpdatePhase::CopyBodiesFromHost),
         )
         .add_systems(HostUpdate, (update_bodies, compute_object_staging).chain());
     }
