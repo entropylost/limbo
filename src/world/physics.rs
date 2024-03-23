@@ -17,7 +17,7 @@ pub struct ObjectHost(u32);
 pub type Object = Expr<u32>;
 
 #[derive(Resource)]
-struct ObjectFields {
+pub struct ObjectFields {
     // TODO: Change for resizing.
     pub domain: StaticDomain<1>,
     // Also change these to use ObjectId instead.
@@ -353,6 +353,7 @@ fn update_objects_kernel(
     objects: Res<ObjectFields>,
 ) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|cell| {
+        // TODO: What to do about collisions?
         let obj = physics.object_staging.expr(&cell);
         if obj == NULL_OBJECT {
             return;
@@ -366,29 +367,11 @@ fn update_objects_kernel(
         let rotated_diff =
             quadrant_rotate(skew_rotate_quadrant(inverted_diff, angle), quadrant(angle));
         let new_pos = objects.position.expr(&obj) + rotated_diff;
-        *physics.object.var(&cell.at(new_pos)) = *obj;
+        let new_cell = cell.at(new_pos);
+        *physics.object.var(&new_cell) = *obj;
         *physics.delta.var(&cell) = new_pos - *cell;
-    })
-}
-
-#[kernel(run)]
-fn update_fields_kernel(
-    device: Res<Device>,
-    world: Res<World>,
-    physics: Res<PhysicsFields>,
-    objects: Res<ObjectFields>,
-) -> Kernel<fn()> {
-    Kernel::build(&device, &**world, &|cell| {
-        let obj = physics.object.expr(&cell);
-        if obj == NULL_OBJECT {
-            return;
-        }
-        let obj = cell.at(obj);
-        // TODO: This can be done more efficiently in update_objects; but the physics.angle thing needs to be done after,
-        // should be swapped to double-buffering.
-        let diff = (*cell - objects.position.expr(&obj)).cast_f32();
-        *physics.velocity.var(&cell) =
-            objects.velocity.expr(&obj) + objects.angvel.expr(&obj) * Vec2::expr(-diff.y, diff.x);
+        *physics.velocity.var(&new_cell) = objects.velocity.expr(&obj)
+            + objects.angvel.expr(&obj) * Vec2::expr(-rotated_diff.y, rotated_diff.x).cast_f32();
     })
 }
 
@@ -412,11 +395,7 @@ impl Plugin for PhysicsPlugin {
         .add_systems(Startup, setup_physics)
         .add_systems(
             InitKernel,
-            (
-                init_update_objects_kernel,
-                init_update_fields_kernel,
-                init_clear_objects_kernel,
-            ),
+            (init_update_objects_kernel, init_clear_objects_kernel),
         )
         .add_systems(PostStartup, compute_object_staging)
         .add_systems(
@@ -425,7 +404,6 @@ impl Plugin for PhysicsPlugin {
                 add_update(extract_to_device),
                 add_update(clear_objects),
                 add_update(update_objects),
-                add_update(update_fields),
             )
                 .chain()
                 .in_set(UpdatePhase::CopyBodiesFromHost),
