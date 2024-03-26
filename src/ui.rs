@@ -1,5 +1,12 @@
-use bevy::render::camera::RenderTarget;
-use bevy::window::{PresentMode, WindowRef, WindowResolution};
+use bevy::render::extract_resource::{ExtractResource, ExtractResourcePlugin};
+use bevy::render::graph::CameraDriverLabel;
+use bevy::render::render_graph::{RenderGraph, RenderLabel};
+use bevy::render::render_resource::{
+    LoadOp, Operations, RenderPassColorAttachment, RenderPassDescriptor, StoreOp,
+};
+use bevy::render::view::ExtractedWindows;
+use bevy::render::RenderApp;
+use bevy::window::{PresentMode, WindowResolution};
 use bevy_egui::{EguiContext, EguiPlugin};
 
 use crate::prelude::*;
@@ -25,21 +32,69 @@ fn create_window_system(mut commands: Commands) {
         .insert(UiWindow)
         .id();
 
-    commands.spawn(Camera3dBundle {
-        camera: Camera {
-            target: RenderTarget::Window(WindowRef::Entity(ui_window_id)),
-            ..Default::default()
-        },
-        ..Default::default()
-    });
+    commands.insert_resource(UiWindowId(ui_window_id));
 }
 
 pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(ClearColor(Color::NONE))
+            .add_plugins(ExtractResourcePlugin::<UiWindowId>::default())
             .add_plugins(EguiPlugin)
             .add_systems(Startup, create_window_system);
+        let render_app = app.sub_app_mut(RenderApp);
+
+        let mut graph = render_app.world.resource_mut::<RenderGraph>();
+
+        graph.add_node(ClearLabel, ClearNode);
+        graph.add_node_edge(CameraDriverLabel, ClearLabel);
         // TODO: Make a Ui Schedule / systemset or something.
+    }
+}
+
+#[derive(Resource, Debug, Hash, PartialEq, Eq, Clone, Copy, ExtractResource)]
+struct UiWindowId(Entity);
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, RenderLabel)]
+struct ClearLabel;
+
+struct ClearNode;
+impl bevy::render::render_graph::Node for ClearNode {
+    fn run(
+        &self,
+        _graph: &mut bevy::render::render_graph::RenderGraphContext,
+        render_context: &mut bevy::render::renderer::RenderContext,
+        world: &BevyWorld,
+    ) -> Result<(), bevy::render::render_graph::NodeRunError> {
+        let Some(UiWindowId(ui_window_id)) = world.get_resource::<UiWindowId>() else {
+            return Ok(());
+        };
+        let Some(window) = world
+            .resource::<ExtractedWindows>()
+            .windows
+            .get(ui_window_id)
+        else {
+            return Ok(());
+        };
+
+        let swap_chain_texture_view = window.swap_chain_texture_view.as_ref().unwrap();
+
+        render_context
+            .command_encoder()
+            .begin_render_pass(&RenderPassDescriptor {
+                label: Some("clear render pass"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: swap_chain_texture_view,
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Clear(Color::NONE.into()),
+                        store: StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+        Ok(())
     }
 }

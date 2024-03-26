@@ -24,6 +24,8 @@ features = ["nalgebra", "glam"]
 
 [dependencies.bevy]
 version = "0.13.1"
+default-features = false
+features = ["x11", "bevy_winit", "bevy_render", "multi-threaded"]
 
 [features]
 default = ["dylib"]
