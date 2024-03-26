@@ -59,3 +59,23 @@ pub fn rand(pos: Expr<Vec2<u32>>, t: Expr<u32>, c: u32) -> Expr<u32> {
 pub fn rand_f32(pos: Expr<Vec2<u32>>, t: Expr<u32>, c: u32) -> Expr<f32> {
     rand(pos, t, c).as_f32() / u32::MAX as f32
 }
+
+/*
+Add this one as well.
+// https://github.com/markjarzynski/pcg3d
+uint3 pcg3d(uint3 v) {
+    v = v * 1664525u + 1013904223u;
+
+    v.x += v.y*v.z;
+    v.y += v.z*v.x;
+    v.z += v.x*v.y;
+
+    v ^= v>>16u;
+
+    v.x += v.y*v.z;
+    v.y += v.z*v.x;
+    v.z += v.x*v.y;
+
+    return v;
+}
+*/

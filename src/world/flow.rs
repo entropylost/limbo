@@ -1,4 +1,6 @@
-use super::imf::{update_imf, ImfFields};
+// TODO: Fix
+
+use super::impeller::{update_imf, ImpellerFields};
 use crate::prelude::*;
 use crate::utils::rand_f32;
 
@@ -22,7 +24,7 @@ fn flow_update_kernel(
     device: Res<Device>,
     world: Res<World>,
     flow: Res<FlowFields>,
-    imf: Res<ImfFields>,
+    imf: Res<ImpellerFields>,
 ) -> Kernel<fn(u32)> {
     Kernel::build(&device, &**world, &|cell, t| {
         if flow.activation.expr(&cell) {

@@ -205,12 +205,14 @@ fn accumulate_kernel(
 fn color(parameters: Res<LightParameters>, mut time: Local<u32>) -> impl AsNodes {
     *time = time.wrapping_add(1);
     let offset = Vec2::from(parameters.offset);
-    (
-        wall_kernel.dispatch(&offset),
-        trace_kernel.dispatch(&*time),
-        accumulate_kernel.dispatch(&offset),
-    )
-        .chain()
+    parameters.running.then(|| {
+        (
+            wall_kernel.dispatch(&offset),
+            trace_kernel.dispatch(&*time),
+            accumulate_kernel.dispatch(&offset),
+        )
+            .chain()
+    })
 }
 
 #[derive(Resource, Clone)]
@@ -248,11 +250,13 @@ impl Default for LightConstants {
 
 #[derive(Resource, Copy, Clone)]
 pub struct LightParameters {
+    pub running: bool,
     pub offset: Vector2<i32>,
 }
 impl Default for LightParameters {
     fn default() -> Self {
         Self {
+            running: true,
             offset: Vector2::new(0, 0),
         }
     }

@@ -9,7 +9,7 @@ const CELL_OUT: f32 = 0.5 + OUTFLOW_SIZE;
 const MAX_VEL: f32 = 1.0 - OUTFLOW_SIZE;
 
 #[derive(Resource)]
-pub struct ImfFields {
+pub struct ImpellerFields {
     pub divergence: VField<f32, Cell>,
     pub edgevel: VField<f32, Edge>,
     pub accel: VField<Vec2<f32>, Cell>,
@@ -24,7 +24,7 @@ pub struct ImfFields {
 
 fn setup_imf(mut commands: Commands, device: Res<Device>, world: Res<World>) {
     let mut fields = FieldSet::new();
-    let imf = ImfFields {
+    let imf = ImpellerFields {
         divergence: fields.create_bind("imf-divergence", world.create_texture(&device)),
         edgevel: fields.create_bind("imf-edgevel", world.dual.create_texture(&device)),
         accel: fields.create_bind("imf-accel", world.create_texture(&device)),
@@ -40,7 +40,11 @@ fn setup_imf(mut commands: Commands, device: Res<Device>, world: Res<World>) {
 }
 
 #[kernel]
-fn divergence_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> Kernel<fn()> {
+fn divergence_kernel(
+    device: Res<Device>,
+    world: Res<World>,
+    imf: Res<ImpellerFields>,
+) -> Kernel<fn()> {
     Kernel::build(&device, &world.checkerboard(), &|cell| {
         let divergence = f32::var_zeroed();
         for dir in GridDirection::iter_all() {
@@ -57,7 +61,7 @@ fn divergence_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>
 }
 
 #[kernel]
-fn accel_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> Kernel<fn()> {
+fn accel_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImpellerFields>) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|cell| {
         let accel = Vec2::<f32>::var_zeroed();
         for dir in GridDirection::iter_all() {
@@ -69,7 +73,11 @@ fn accel_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> 
 }
 
 #[kernel]
-fn pressure_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> Kernel<fn()> {
+fn pressure_kernel(
+    device: Res<Device>,
+    world: Res<World>,
+    imf: Res<ImpellerFields>,
+) -> Kernel<fn()> {
     Kernel::build(&device, &world.margolus(), &|cell| {
         // const MAX_PRESSURE: f32 = 6.0;
         let pressure = f32::var_zeroed();
@@ -90,7 +98,7 @@ fn pressure_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) 
 }
 
 #[kernel]
-fn copy_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> Kernel<fn()> {
+fn copy_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImpellerFields>) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|cell| {
         *imf.mass.var(&cell) = imf.next_mass.expr(&cell) * 0.99;
         *imf.velocity.var(&cell) = imf.next_velocity.expr(&cell) + 0.01 * imf.accel.expr(&cell);
@@ -103,7 +111,7 @@ fn copy_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> K
 }
 
 #[kernel]
-fn advect_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> Kernel<fn()> {
+fn advect_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImpellerFields>) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|cell| {
         let objects = [NULL_OBJECT; 9].var();
         let masses = [0.0_f32; 9].var();
@@ -170,7 +178,7 @@ fn advect_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) ->
 }
 
 #[kernel(run)]
-fn load_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> Kernel<fn()> {
+fn load_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImpellerFields>) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|cell| {
         *imf.object.var(&cell) = NULL_OBJECT;
     })
@@ -180,7 +188,7 @@ fn load_kernel(device: Res<Device>, world: Res<World>, imf: Res<ImfFields>) -> K
 fn collide_kernel(
     device: Res<Device>,
     world: Res<World>,
-    imf: Res<ImfFields>,
+    imf: Res<ImpellerFields>,
     physics: Res<PhysicsFields>,
 ) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|cell| {

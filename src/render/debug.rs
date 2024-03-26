@@ -1,37 +1,74 @@
+use sefirot::field::FieldId;
+
 use super::prelude::*;
 pub use crate::prelude::*;
-use crate::world::flow::FlowFields;
-use crate::world::imf::ImfFields;
-use crate::world::physics::{self, PhysicsFields, NULL_OBJECT};
 
-#[kernel]
-fn color_kernel(
+fn compute_kernel(
     device: Res<Device>,
     world: Res<World>,
-    physics: Res<PhysicsFields>,
+    mut parameters: ResMut<DebugParameters>,
     render: Res<RenderFields>,
-) -> Kernel<fn()> {
-    Kernel::build(&device, &**world, &|cell| {
-        let color = if false
-        // if physics.object.expr(&cell) != NULL_OBJECT
-        //     || physics.next_object.expr(&cell) != NULL_OBJECT
-        {
-            Vec3::expr(1.0, 0.0, 0.0)
-        } else {
-            Vec3::expr(0.0, 0.0, 0.0)
-        };
-        *render.color.var(&cell) = color;
-    })
+) {
+    if parameters.current_field == parameters.active_field {
+        return;
+    }
+    parameters.kernel = Kernel::<fn()>::build(
+        &device,
+        &**world,
+        &track!(|cell| {
+            let field = parameters.active_field;
+            let color = if let Some(field) = field.get_typed::<Expr<bool>, Cell>() {
+                if field.expr(&cell) {
+                    Vec3::splat_expr(1.0_f32)
+                } else {
+                    Vec3::splat_expr(0.0_f32)
+                }
+            } else if let Some(field) = field.get_typed::<Expr<f32>, Cell>() {
+                Vec3::splat(1.0) * field.expr(&cell)
+            } else if let Some(field) = field.get_typed::<Expr<Vec3<f32>>, Cell>() {
+                field.expr(&cell)
+            } else {
+                Vec3::splat_expr(0.0_f32)
+            };
+            *render.color.var(&cell) = color;
+        }),
+    )
+    .with_name("debug_color");
+    parameters.current_field = parameters.active_field;
 }
 
-fn color() -> impl AsNodes {
-    color_kernel.dispatch()
+fn color(parameters: Res<DebugParameters>) -> impl AsNodes {
+    parameters.running.then(|| parameters.kernel.dispatch())
+}
+
+#[derive(Resource, Debug)]
+pub struct DebugParameters {
+    pub running: bool,
+    pub active_field: FieldId,
+    current_field: FieldId,
+
+    kernel: Kernel<fn()>,
+}
+impl FromWorld for DebugParameters {
+    fn from_world(world: &mut BevyWorld) -> Self {
+        let empty_field = FieldId::unique();
+        Self {
+            running: false,
+            active_field: empty_field,
+            current_field: empty_field,
+            kernel: Kernel::null(world.resource::<Device>()),
+        }
+    }
 }
 
 pub struct DebugPlugin;
 impl Plugin for DebugPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(InitKernel, init_color_kernel)
-            .add_systems(Render, add_render(color).in_set(RenderPhase::Light));
+        app.init_resource::<DebugParameters>().add_systems(
+            Render,
+            (compute_kernel, add_render(color))
+                .chain()
+                .in_set(RenderPhase::Light),
+        );
     }
 }

@@ -1,26 +1,26 @@
-use std::f32::consts::PI;
-
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::prelude::*;
 use bevy::window::WindowResolution;
 use bevy_sefirot::display::DisplayPlugin;
 use bevy_sefirot::prelude::*;
-use nalgebra::{UnitComplex, Vector2};
+use nalgebra::Vector2;
 use rapier2d::dynamics::{RigidBodyBuilder, RigidBodyHandle};
 use rapier2d::geometry::ColliderBuilder;
 use render::agx::AgXTonemapPlugin;
-use world::flow::FlowPlugin;
+use ui::debug::DebugUiPlugin;
+use ui::UiPlugin;
 
 use crate::render::debug::DebugPlugin;
 use crate::render::dither::DitherPlugin;
 use crate::render::light::{LightConstants, LightParameters, LightPlugin};
 use crate::render::{RenderParameters, RenderPlugin};
-use crate::world::imf::ImfPlugin;
+use crate::world::impeller::ImfPlugin;
 use crate::world::physics::{PhysicsPlugin, RigidBodyContext};
 use crate::world::WorldPlugin;
 
 pub mod prelude;
 pub mod render;
+pub mod ui;
 pub mod utils;
 pub mod world;
 
@@ -53,7 +53,8 @@ fn main() {
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 resizable: false,
-                resolution: WindowResolution::new(1920.0, 1080.0 - 32.0),
+                decorations: false,
+                resolution: WindowResolution::new(1920.0, 1080.0),
                 ..default()
             }),
             ..default()
@@ -63,15 +64,17 @@ fn main() {
             device: DeviceType::Cuda,
             ..default()
         })
-        .add_plugins(DisplayPlugin)
+        .add_plugins(DisplayPlugin::default())
         .add_plugins(WorldPlugin)
         .add_plugins(PhysicsPlugin)
-        // .add_plugins(ImfPlugin)
-        // .add_plugins(FlowPlugin)
+        .add_plugins(UiPlugin)
+        .add_plugins(ImfPlugin)
         .add_plugins(RenderPlugin::default())
         .add_plugins(AgXTonemapPlugin)
         .add_plugins(DitherPlugin)
         .add_plugins(LightPlugin)
+        .add_plugins(DebugPlugin)
+        .add_plugins(DebugUiPlugin)
         .add_systems(Startup, setup)
         .add_systems(PreUpdate, (apply_player_force, update_viewport).chain())
         .run();
@@ -138,7 +141,7 @@ fn setup(mut commands: Commands, mut rb_context: ResMut<RigidBodyContext>) {
     //      .build();
     //  let collider = ColliderBuilder::cuboid(6.0, 50.0).build();
     //  rb_context.insert2(body, collider);
-    let body = RigidBodyBuilder::fixed()
+    let body = RigidBodyBuilder::dynamic()
         .translation(Vector2::new(64.0, 20.0))
         .build();
     let collider = ColliderBuilder::cuboid(50.0, 6.0).build();
@@ -147,12 +150,11 @@ fn setup(mut commands: Commands, mut rb_context: ResMut<RigidBodyContext>) {
     // 0
     let mut player = RigidBodyBuilder::dynamic()
         .translation(Vector2::new(64.0, 64.0))
-        // .lock_rotations()
-        // .angvel(0.01)
+        .lock_rotations()
         .build();
     player.activation_mut().linear_threshold = 0.1;
     player.activation_mut().angular_threshold = 0.001;
-    let player_collider = ColliderBuilder::cuboid(20.0, 6.0).build();
+    let player_collider = ColliderBuilder::cuboid(5.0, 5.0).build();
     let player = rb_context.insert2(player, player_collider);
     commands.spawn((Player { body: player }, ActivePlayer));
 }

@@ -7,7 +7,7 @@ use crate::prelude::*;
 
 pub mod direction;
 pub mod flow;
-pub mod imf;
+pub mod impeller;
 pub mod physics;
 
 #[derive(
