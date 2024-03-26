@@ -42,7 +42,6 @@ fn fill_kernel(
                 }
             }
         }
-        fields.domain.activate(&cell);
     })
 }
 
@@ -70,7 +69,14 @@ fn update_tiled(mut t: Local<u32>, fields: Res<TiledTestFields>) -> impl AsNodes
     if *t == 1 {
         Some((startup_kernel.dispatch(), fields.tiles.update()).chain())
     } else if *t % 16 == 0 {
-        Some((fill_kernel.dispatch(), fields.tiles.update()).chain())
+        Some(
+            (
+                fields.tiles.reset(),
+                fill_kernel.dispatch(),
+                fields.tiles.update(),
+            )
+                .chain(),
+        )
     } else {
         None
     }

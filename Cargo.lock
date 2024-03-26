@@ -2397,6 +2397,8 @@ dependencies = [
  "luisa_compute",
  "morton",
  "nalgebra",
+ "once_cell",
+ "parking_lot",
  "rapier2d",
  "sefirot",
  "sefirot_grid",

@@ -15,6 +15,8 @@ morton = "0.3.0"
 winit = "0.29.15"
 bevy_egui = "0.26.0"
 egui = "0.26.2"
+once_cell = "1.19.0"
+parking_lot = "0.12.1"
 
 
 [dependencies.luisa_compute]
@@ -30,7 +32,8 @@ features = ["x11", "bevy_winit", "bevy_render", "multi-threaded"]
 [features]
 default = ["dylib"]
 dylib = ["bevy/dynamic_linking"]
-debug = ["sefirot/debug", "bevy_sefirot/debug"]
+timed = ["bevy_sefirot/trace"]
+debug = ["bevy_sefirot/debug"]
 trace = ["bevy/trace_chrome", "bevy_sefirot/trace"]
 
 [profile.dev.package.'*']

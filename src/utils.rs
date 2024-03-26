@@ -6,6 +6,12 @@ use nalgebra::ComplexField;
 
 use crate::prelude::*;
 
+#[cfg(feature = "timed")]
+static TIMINGS: once_cell::sync::Lazy<parking_lot::Mutex<std::collections::BTreeMap<String, f32>>> =
+    once_cell::sync::Lazy::new(|| parking_lot::Mutex::new(std::collections::BTreeMap::new()));
+#[cfg(feature = "timed")]
+static TIME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 pub fn sin(x: f32) -> f32 {
     ComplexField::sin(x)
 }
@@ -29,8 +35,25 @@ pub fn execute_graph<T: DerefMut<Target = MirrorGraph> + Resource>(mut graph: Re
     graph.execute_trace();
     #[cfg(all(feature = "debug", not(feature = "trace")))]
     graph.execute_dbg();
-    #[cfg(all(not(feature = "trace"), not(feature = "debug")))]
+    #[cfg(all(not(feature = "trace"), not(feature = "debug"), not(feature = "timed")))]
     graph.execute();
+    #[cfg(feature = "timed")]
+    {
+        TIME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        let mut timings = TIMINGS.lock();
+        let these_timings = graph.execute_timed();
+        for (name, time) in these_timings.iter() {
+            let entry = timings.entry(name.clone()).or_insert(0.0);
+            *entry = *entry * 0.99 + *time * 0.01;
+        }
+
+        if TIME.load(std::sync::atomic::Ordering::Relaxed) % 1000 == 0 {
+            for (name, time) in timings.iter() {
+                println!("{}: {}", name, time);
+            }
+        }
+    }
 }
 
 // https://nullprogram.com/blog/2018/07/31/
