@@ -196,7 +196,10 @@ impl Plugin for RenderPlugin {
                     .after(run_schedule::<WorldUpdate>)
                     .before(execute_graph::<UpdateGraph>),
             )
-            .add_systems(HostUpdate, execute_graph::<RenderGraph>)
+            .add_systems(
+                Update,
+                execute_graph::<RenderGraph>.after(execute_graph::<UpdateGraph>),
+            )
             .add_systems(
                 Render,
                 add_render(upscale_postprocess).in_set(RenderPhase::Postprocess),

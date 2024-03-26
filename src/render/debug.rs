@@ -28,7 +28,7 @@ fn compute_kernel(
             } else if let Some(field) = field.get_typed::<Expr<Vec3<f32>>, Cell>() {
                 field.expr(&cell)
             } else {
-                Vec3::splat_expr(0.0_f32)
+                panic!("Invalid field type");
             };
             *render.color.var(&cell) = color;
         }),

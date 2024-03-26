@@ -408,6 +408,11 @@ impl Plugin for PhysicsPlugin {
                 .chain()
                 .in_set(UpdatePhase::CopyBodiesFromHost),
         )
-        .add_systems(HostUpdate, (update_bodies, compute_object_staging).chain());
+        .add_systems(
+            Update,
+            (update_bodies, compute_object_staging)
+                .chain()
+                .in_set(HostUpdate),
+        );
     }
 }

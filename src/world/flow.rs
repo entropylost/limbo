@@ -1,6 +1,6 @@
 // TODO: Fix
 
-use super::impeller::{update_imf, ImpellerFields};
+use super::impeller::{update_impeller, ImpellerFields};
 use crate::prelude::*;
 use crate::utils::rand_f32;
 
@@ -24,11 +24,11 @@ fn flow_update_kernel(
     device: Res<Device>,
     world: Res<World>,
     flow: Res<FlowFields>,
-    imf: Res<ImpellerFields>,
+    impeller: Res<ImpellerFields>,
 ) -> Kernel<fn(u32)> {
     Kernel::build(&device, &**world, &|cell, t| {
         if flow.activation.expr(&cell) {
-            let vel = imf.velocity.expr(&cell);
+            let vel = impeller.velocity.expr(&cell);
             let sign = vel.signum().cast_i32();
             let abs = vel.abs();
             let int = abs.floor();
@@ -47,7 +47,7 @@ fn flow_update_kernel(
                 *flow.activation.var(&cell.at(pos)) = true;
                 *flow.activation.var(&cell) = false;
             }
-        } else if rand_f32(dispatch_id().xy(), t, 0) < 0.0001 {
+        } else if rand_f32(dispatch_id().xy(), t, 0) < 0.01 {
             *flow.activation.var(&cell) = true;
         }
     })
@@ -67,7 +67,7 @@ impl Plugin for FlowPlugin {
                 WorldUpdate,
                 add_update(flow_update)
                     .in_set(UpdatePhase::Step)
-                    .after(update_imf),
+                    .after(update_impeller),
             );
     }
 }

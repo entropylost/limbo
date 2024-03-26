@@ -7,6 +7,7 @@ use bevy::render::render_resource::{
 use bevy::render::view::ExtractedWindows;
 use bevy::render::RenderApp;
 use bevy::window::{PresentMode, WindowResolution};
+use bevy_egui::render_systems::EguiPass;
 use bevy_egui::{EguiContext, EguiPlugin};
 
 use crate::prelude::*;
@@ -35,6 +36,24 @@ fn create_window_system(mut commands: Commands) {
     commands.insert_resource(UiWindowId(ui_window_id));
 }
 
+fn add_ui_node(window: Option<Res<UiWindowId>>, mut graph: ResMut<RenderGraph>) {
+    let Some(window) = window else {
+        return;
+    };
+    if !window.is_added() {
+        return;
+    }
+    graph.add_node(ClearLabel, ClearNode);
+    graph.add_node_edge(CameraDriverLabel, ClearLabel);
+    graph.add_node_edge(
+        ClearLabel,
+        EguiPass {
+            window_index: window.0.index(),
+            window_generation: window.0.generation(),
+        },
+    );
+}
+
 pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
@@ -42,12 +61,8 @@ impl Plugin for UiPlugin {
             .add_plugins(ExtractResourcePlugin::<UiWindowId>::default())
             .add_plugins(EguiPlugin)
             .add_systems(Startup, create_window_system);
-        let render_app = app.sub_app_mut(RenderApp);
-
-        let mut graph = render_app.world.resource_mut::<RenderGraph>();
-
-        graph.add_node(ClearLabel, ClearNode);
-        graph.add_node_edge(CameraDriverLabel, ClearLabel);
+        app.sub_app_mut(RenderApp)
+            .add_systems(bevy::render::Render, add_ui_node);
         // TODO: Make a Ui Schedule / systemset or something.
     }
 }

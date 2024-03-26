@@ -27,12 +27,10 @@ pub fn init_resource<T: Resource + FromWorld>(mut commands: Commands) {
 pub fn execute_graph<T: DerefMut<Target = MirrorGraph> + Resource>(mut graph: ResMut<T>) {
     #[cfg(feature = "trace")]
     graph.execute_trace();
-    #[cfg(not(feature = "trace"))]
-    graph.execute();
-}
-#[cfg(feature = "debug")]
-pub fn execute_graph_dbg<T: DerefMut<Target = MirrorGraph> + Resource>(mut graph: ResMut<T>) {
+    #[cfg(all(feature = "debug", not(feature = "trace")))]
     graph.execute_dbg();
+    #[cfg(all(not(feature = "trace"), not(feature = "debug")))]
+    graph.execute();
 }
 
 // https://nullprogram.com/blog/2018/07/31/

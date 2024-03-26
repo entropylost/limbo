@@ -8,13 +8,14 @@ use crate::render::light::LightParameters;
 use crate::world::flow::FlowFields;
 use crate::world::impeller::ImpellerFields;
 use crate::world::physics::{PhysicsFields, NULL_OBJECT};
+use crate::world::tiled_test::TiledTestFields;
 
 #[derive(Resource, Debug)]
 pub struct DebugUiState {
     activate_debug_render: bool,
     current_index: usize,
-    debug_fields: Vec<(String, FieldId)>,
-    _fields: FieldSet,
+    pub debug_fields: Vec<(String, FieldId)>,
+    pub _fields: FieldSet,
 }
 impl FromWorld for DebugUiState {
     fn from_world(world: &mut BevyWorld) -> Self {
@@ -36,15 +37,15 @@ impl FromWorld for DebugUiState {
             );
             debug_fields.push(("Object", debug_object.id()))
         }
-        if let Some(imf) = world.get_resource::<ImpellerFields>() {
-            let mass: EField<f32, Cell> = *imf.mass;
+        if let Some(impeller) = world.get_resource::<ImpellerFields>() {
+            let mass: EField<f32, Cell> = *impeller.mass;
             let debug_mass: EField<Vec3<f32>, Cell> = fields.create_bind(
                 "debug-mass",
                 mass.map(track_nc!(|x| { Vec3::splat_expr(x) })),
             );
             debug_fields.push(("Mass", debug_mass.id()));
 
-            let velocity: EField<Vec2<f32>, Cell> = *imf.velocity;
+            let velocity: EField<Vec2<f32>, Cell> = *impeller.velocity;
             let debug_velocity: EField<Vec3<f32>, Cell> = fields.create_bind(
                 "debug-velocity",
                 velocity.map(track_nc!(|v| { Vec3::expr(v.x + 0.5, v.y + 0.5, 0.0) })),
@@ -54,6 +55,11 @@ impl FromWorld for DebugUiState {
         if let Some(flow) = world.get_resource::<FlowFields>() {
             let activation: EField<bool, Cell> = *flow.activation;
             debug_fields.push(("Flow Activation", activation.id()));
+        }
+        if let Some(tiled_test_fields) = world.get_resource::<TiledTestFields>() {
+            debug_fields.push(("Tiled Test Data", tiled_test_fields.data_field.id()));
+            let active = fields.create_bind("tiled-test-active", tiled_test_fields.domain.active());
+            debug_fields.push(("Active Tiles", active.id()))
         }
         Self {
             activate_debug_render: false,

@@ -9,14 +9,13 @@ pub mod direction;
 pub mod flow;
 pub mod impeller;
 pub mod physics;
+pub mod tiled_test;
 
 #[derive(
     ScheduleLabel, Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect,
 )]
 pub struct WorldUpdate;
-#[derive(
-    ScheduleLabel, Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect,
-)]
+#[derive(SystemSet, Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect)]
 pub struct HostUpdate;
 
 #[derive(
@@ -104,7 +103,6 @@ impl Plugin for WorldPlugin {
         app.init_resource::<World>()
             .init_schedule(WorldUpdate)
             .init_schedule(WorldInit)
-            .init_schedule(HostUpdate)
             .init_state::<WorldState>()
             .configure_sets(
                 WorldUpdate,
@@ -125,16 +123,14 @@ impl Plugin for WorldPlugin {
                     .chain()
                     .run_if(run_once()),
             )
+            .configure_sets(Update, HostUpdate.run_if(in_state(WorldState::Running)))
             .add_systems(
                 Update,
                 (
-                    (
-                        run_schedule::<WorldUpdate>,
-                        execute_graph::<UpdateGraph>,
-                        run_schedule::<HostUpdate>,
-                    )
+                    (run_schedule::<WorldUpdate>, execute_graph::<UpdateGraph>)
                         .chain()
-                        .run_if(in_state(WorldState::Running)),
+                        .run_if(in_state(WorldState::Running))
+                        .before(HostUpdate),
                     pause_system,
                 )
                     .chain(),

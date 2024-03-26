@@ -22,7 +22,7 @@ pub struct ImpellerFields {
     _fields: FieldSet,
 }
 
-fn setup_imf(mut commands: Commands, device: Res<Device>, world: Res<World>) {
+fn setup_impeller(mut commands: Commands, device: Res<Device>, world: Res<World>) {
     let mut fields = FieldSet::new();
     let impeller = ImpellerFields {
         divergence: fields.create_bind("impeller-divergence", world.create_texture(&device)),
@@ -228,7 +228,7 @@ fn collide_kernel(
     })
 }
 
-pub fn update_imf() -> impl AsNodes {
+pub fn update_impeller() -> impl AsNodes {
     (
         collide_kernel.dispatch(),
         divergence_kernel.dispatch(),
@@ -240,10 +240,10 @@ pub fn update_imf() -> impl AsNodes {
         .chain()
 }
 
-pub struct ImfPlugin;
-impl Plugin for ImfPlugin {
+pub struct ImpellerPlugin;
+impl Plugin for ImpellerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup_imf)
+        app.add_systems(Startup, setup_impeller)
             .add_systems(
                 InitKernel,
                 (
@@ -259,7 +259,7 @@ impl Plugin for ImfPlugin {
             .add_systems(WorldInit, add_init(load))
             .add_systems(
                 WorldUpdate,
-                add_update(update_imf).in_set(UpdatePhase::Step),
+                add_update(update_impeller).in_set(UpdatePhase::Step),
             );
     }
 }

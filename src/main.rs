@@ -9,12 +9,13 @@ use rapier2d::geometry::ColliderBuilder;
 use render::agx::AgXTonemapPlugin;
 use ui::debug::DebugUiPlugin;
 use ui::UiPlugin;
+use world::flow::FlowPlugin;
 
 use crate::render::debug::DebugPlugin;
 use crate::render::dither::DitherPlugin;
 use crate::render::light::{LightConstants, LightParameters, LightPlugin};
 use crate::render::{RenderParameters, RenderPlugin};
-use crate::world::impeller::ImfPlugin;
+use crate::world::impeller::ImpellerPlugin;
 use crate::world::physics::{PhysicsPlugin, RigidBodyContext};
 use crate::world::WorldPlugin;
 
@@ -68,13 +69,15 @@ fn main() {
         .add_plugins(WorldPlugin)
         .add_plugins(PhysicsPlugin)
         .add_plugins(UiPlugin)
-        .add_plugins(ImfPlugin)
+        .add_plugins(ImpellerPlugin)
+        .add_plugins(FlowPlugin)
         .add_plugins(RenderPlugin::default())
         .add_plugins(AgXTonemapPlugin)
         .add_plugins(DitherPlugin)
         .add_plugins(LightPlugin)
         .add_plugins(DebugPlugin)
         .add_plugins(DebugUiPlugin)
+        .add_plugins(world::tiled_test::TiledTestPlugin)
         .add_systems(Startup, setup)
         .add_systems(PreUpdate, (apply_player_force, update_viewport).chain())
         .run();

@@ -8,8 +8,6 @@ pub use sefirot::graph::AsNodes as AsNodesExt;
 pub use sefirot_grid::dual::Edge;
 pub use sefirot_grid::{Cell, GridDirection};
 
-#[cfg(feature = "debug")]
-pub use crate::utils::execute_graph_dbg;
 pub use crate::utils::{execute_graph, init_resource, run_schedule};
 pub use crate::world::{
     add_init, add_update, HostUpdate, UpdatePhase, World, WorldInit, WorldUpdate,
