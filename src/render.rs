@@ -7,6 +7,7 @@ use bevy_sefirot::MirrorGraph;
 use sefirot::mapping::buffer::StaticDomain;
 
 use crate::prelude::*;
+use crate::world::UpdateGraph;
 
 pub mod agx;
 pub mod debug;
@@ -191,7 +192,9 @@ impl Plugin for RenderPlugin {
             )
             .add_systems(
                 Update,
-                run_schedule::<Render>.before(run_schedule::<WorldUpdate>),
+                run_schedule::<Render>
+                    .after(run_schedule::<WorldUpdate>)
+                    .before(execute_graph::<UpdateGraph>),
             )
             .add_systems(HostUpdate, execute_graph::<RenderGraph>)
             .add_systems(

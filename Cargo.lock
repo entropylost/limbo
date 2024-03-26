@@ -296,9 +296,9 @@ dependencies = [
 
 [[package]]
 name = "autocfg"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
+checksum = "f1fdabc7756949593fe60f30ec81974b613357de856987752631dea1e3394c80"
 
 [[package]]
 name = "backtrace"
@@ -2256,9 +2256,9 @@ dependencies = [
 
 [[package]]
 name = "itoa"
-version = "1.0.10"
+version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1a46d1a171d865aa5f83f92695765caa047a9b4cbae2cbf37dbd613a793fd4c"
+checksum = "49f1f14873335454500d59611f1cf4a4b0f786f9ac11f4312a78e4cf2566695b"
 
 [[package]]
 name = "jni"
@@ -2428,7 +2428,7 @@ checksum = "90ed8c1e510134f979dbc4f070f87d4313098b704861a105fe34231c70a3901c"
 [[package]]
 name = "luisa_compute"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#d90b2606f9ccaf5d1a3a9540c9394fb5c5e3d246"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#ddfc8815566b2d1d5193429609288fc8bb3bbf4c"
 dependencies = [
  "bumpalo",
  "env_logger",
@@ -2457,7 +2457,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_api_types"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#d90b2606f9ccaf5d1a3a9540c9394fb5c5e3d246"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#ddfc8815566b2d1d5193429609288fc8bb3bbf4c"
 dependencies = [
  "bitflags 2.5.0",
  "cbindgen",
@@ -2467,7 +2467,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_backend"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#d90b2606f9ccaf5d1a3a9540c9394fb5c5e3d246"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#ddfc8815566b2d1d5193429609288fc8bb3bbf4c"
 dependencies = [
  "lazy_static",
  "libc",
@@ -2483,7 +2483,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_derive"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#d90b2606f9ccaf5d1a3a9540c9394fb5c5e3d246"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#ddfc8815566b2d1d5193429609288fc8bb3bbf4c"
 dependencies = [
  "luisa_compute_derive_impl",
  "syn 2.0.55",
@@ -2492,7 +2492,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_derive_impl"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#d90b2606f9ccaf5d1a3a9540c9394fb5c5e3d246"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#ddfc8815566b2d1d5193429609288fc8bb3bbf4c"
 dependencies = [
  "prettyplease",
  "proc-macro2",
@@ -2503,7 +2503,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_ir"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#d90b2606f9ccaf5d1a3a9540c9394fb5c5e3d246"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#ddfc8815566b2d1d5193429609288fc8bb3bbf4c"
 dependencies = [
  "base64ct",
  "bincode",
@@ -2525,7 +2525,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_sys"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#d90b2606f9ccaf5d1a3a9540c9394fb5c5e3d246"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#ddfc8815566b2d1d5193429609288fc8bb3bbf4c"
 dependencies = [
  "cmake",
 ]
@@ -2533,7 +2533,7 @@ dependencies = [
 [[package]]
 name = "luisa_compute_track"
 version = "0.1.1-alpha.1"
-source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#d90b2606f9ccaf5d1a3a9540c9394fb5c5e3d246"
+source = "git+https://github.com/iMplode-nZ/luisa-compute-rs?branch=main#ddfc8815566b2d1d5193429609288fc8bb3bbf4c"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -2655,7 +2655,7 @@ dependencies = [
  "naga",
  "once_cell",
  "regex",
- "regex-syntax 0.8.2",
+ "regex-syntax 0.8.3",
  "rustc-hash",
  "thiserror",
  "tracing",
@@ -3302,7 +3302,7 @@ dependencies = [
  "aho-corasick",
  "memchr",
  "regex-automata 0.4.6",
- "regex-syntax 0.8.2",
+ "regex-syntax 0.8.3",
 ]
 
 [[package]]
@@ -3322,7 +3322,7 @@ checksum = "86b83b8b9847f9bf95ef68afb0b8e6cdb80f498442f5179a29fad448fcc1eaea"
 dependencies = [
  "aho-corasick",
  "memchr",
- "regex-syntax 0.8.2",
+ "regex-syntax 0.8.3",
 ]
 
 [[package]]
@@ -3333,9 +3333,9 @@ checksum = "f162c6dd7b008981e4d40210aca20b4bd0f9b60ca9271061b07f78537722f2e1"
 
 [[package]]
 name = "regex-syntax"
-version = "0.8.2"
+version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c08c74e62047bb2de4ff487b251e4a92e24f48745648451635cec7d591162d9f"
+checksum = "adad44e29e4c806119491a7f06f03de4d1af22c3a680dd47f1e6e179439d1f56"
 
 [[package]]
 name = "renderdoc-sys"
@@ -3498,9 +3498,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.114"
+version = "1.0.115"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c5f09b1bd632ef549eaa9f60a1f8de742bdbc698e6cee2095fc84dde5f549ae0"
+checksum = "12dc5c46daa8e9fdf4f5e71b6cf9a53f2487da0e86e55808e2d35539666497dd"
 dependencies = [
  "itoa",
  "ryu",
