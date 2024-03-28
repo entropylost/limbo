@@ -48,6 +48,8 @@ pub struct PhysicsFields {
     object_staging: VField<u32, Cell>,
     pub delta: VField<Vec2<i32>, Cell>,
     pub velocity: VField<Vec2<f32>, Cell>,
+    pub rejection: VField<Vec2<i32>, Cell>,
+    next_rejection: VField<Vec2<i32>, Cell>,
     _fields: FieldSet,
     object_buffer: Buffer<u32>,
     object_staging_buffer: Buffer<u32>,
@@ -160,12 +162,18 @@ fn setup_physics(mut commands: Commands, device: Res<Device>, world: Res<World>)
     );
     let delta = fields.create_bind("physics-delta", world.create_texture(&device));
     let velocity = fields.create_bind("physics-velocity", world.create_texture(&device));
+    // TODO: Change to textures.
+    let rejection = *fields.create_bind("physics-rejection", world.create_buffer(&device));
+    let next_rejection =
+        *fields.create_bind("physics-next-rejection", world.create_buffer(&device));
 
     let physics = PhysicsFields {
         object,
         object_staging,
         delta,
         velocity,
+        rejection,
+        next_rejection,
         _fields: fields,
         object_buffer,
         object_staging_buffer,
@@ -356,6 +364,7 @@ fn update_objects_kernel(
         // TODO: What to do about collisions?
         let obj = physics.object_staging.expr(&cell);
         if obj == NULL_OBJECT {
+            *physics.delta.var(&cell) = Vec2::splat(0);
             return;
         }
         let obj = cell.at(obj);
@@ -379,6 +388,61 @@ fn update_bodies(mut rb_context: ResMut<RigidBodyContext>) {
     rb_context.step();
 }
 
+#[kernel]
+fn compute_rejection_kernel(
+    device: Res<Device>,
+    world: Res<World>,
+    physics: Res<PhysicsFields>,
+) -> Kernel<fn()> {
+    Kernel::build(&device, &**world, &|cell| {
+        let obj = physics.object.expr(&cell);
+        if obj == NULL_OBJECT {
+            *physics.next_rejection.var(&cell) = Vec2::splat(0);
+            return;
+        }
+        let best_dist = i32::MAX.var();
+        let best_pos = Vec2::splat_expr(0_i32).var();
+        for dir in GridDirection::iter_all() {
+            let neighbor = world.in_dir(&cell, dir);
+            let neighbor_pos = if physics.object.expr(&neighbor) == obj {
+                physics.rejection.expr(&neighbor)
+            } else {
+                Vec2::splat_expr(0)
+            } + dir.as_vec();
+            if physics.object.expr(&cell.at(neighbor_pos + *cell)) != obj {
+                let dist = neighbor_pos.x * neighbor_pos.x + neighbor_pos.y * neighbor_pos.y;
+                if dist <= best_dist {
+                    *best_dist = dist;
+                    *best_pos = neighbor_pos;
+                    // TODO: If equal, cancel out. Have to also prevent feedback from farther away things.
+                }
+            }
+        }
+        *physics.next_rejection.var(&cell) = best_pos;
+    })
+}
+
+#[kernel]
+fn copy_rejection_kernel(
+    device: Res<Device>,
+    physics: Res<PhysicsFields>,
+    world: Res<World>,
+) -> Kernel<fn()> {
+    Kernel::build(&device, &**world, &|cell| {
+        *physics
+            .rejection
+            .var(&cell.at(*cell + physics.delta.expr(&cell))) = physics.next_rejection.expr(&cell);
+    })
+}
+
+fn compute_rejection() -> impl AsNodes {
+    (
+        copy_rejection_kernel.dispatch(),
+        compute_rejection_kernel.dispatch(),
+    )
+        .chain()
+}
+
 pub struct PhysicsPlugin;
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
@@ -395,18 +459,26 @@ impl Plugin for PhysicsPlugin {
         .add_systems(Startup, setup_physics)
         .add_systems(
             InitKernel,
-            (init_update_objects_kernel, init_clear_objects_kernel),
+            (
+                init_update_objects_kernel,
+                init_clear_objects_kernel,
+                init_compute_rejection_kernel,
+                init_copy_rejection_kernel,
+            ),
         )
         .add_systems(PostStartup, compute_object_staging)
         .add_systems(
             WorldUpdate,
             (
-                add_update(extract_to_device),
-                add_update(clear_objects),
-                add_update(update_objects),
-            )
-                .chain()
-                .in_set(UpdatePhase::CopyBodiesFromHost),
+                (
+                    add_update(extract_to_device),
+                    add_update(clear_objects),
+                    add_update(update_objects),
+                )
+                    .chain()
+                    .in_set(UpdatePhase::Movement),
+                add_update(compute_rejection).in_set(UpdatePhase::Step),
+            ),
         )
         .add_systems(
             Update,

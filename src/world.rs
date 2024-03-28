@@ -64,9 +64,9 @@ pub fn add_init<F: IntoSystem<I, N, M> + 'static, I: 'static, N: AsNodes + 'stat
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum UpdatePhase {
-    CopyBodiesFromHost,
+    Movement,
     Step,
-    CopyBodiesToHost,
+    CalculateObjects,
 }
 
 #[derive(Resource, Deref)]
@@ -107,9 +107,9 @@ impl Plugin for WorldPlugin {
             .configure_sets(
                 WorldUpdate,
                 (
-                    UpdatePhase::CopyBodiesFromHost,
+                    UpdatePhase::Movement,
                     UpdatePhase::Step,
-                    UpdatePhase::CopyBodiesToHost,
+                    UpdatePhase::CalculateObjects,
                 )
                     .chain(),
             )

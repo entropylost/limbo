@@ -144,9 +144,13 @@ fn setup(mut commands: Commands, mut rb_context: ResMut<RigidBodyContext>) {
     //      .build();
     //  let collider = ColliderBuilder::cuboid(6.0, 50.0).build();
     //  rb_context.insert2(body, collider);
-    let body = RigidBodyBuilder::dynamic()
+    let mut body = RigidBodyBuilder::dynamic()
         .translation(Vector2::new(64.0, 20.0))
+        .angvel(0.01)
         .build();
+    body.activation_mut().linear_threshold = 0.1;
+    body.activation_mut().angular_threshold = 0.001;
+
     let collider = ColliderBuilder::cuboid(50.0, 6.0).build();
     rb_context.insert2(body, collider);
 

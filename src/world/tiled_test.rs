@@ -6,6 +6,8 @@ use sefirot_grid::tiled::{TileArray, TileArrayParameters, TileDomain};
 
 use crate::prelude::*;
 
+// TODO: Remove all of this.
+// Also make the debug ui be done within the world datas instead.
 #[derive(Resource)]
 pub struct TiledTestFields {
     pub domain: OffsetDomain<TileDomain>,
