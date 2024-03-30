@@ -7,7 +7,7 @@ use crate::render::debug::DebugParameters;
 use crate::render::light::LightParameters;
 use crate::world::flow::FlowFields;
 use crate::world::impeller::ImpellerFields;
-use crate::world::physics::{PhysicsFields, NULL_OBJECT};
+use crate::world::physics::{CollisionFields, PhysicsFields, NULL_OBJECT};
 use crate::world::tiled_test::TiledTestFields;
 
 #[derive(Resource, Debug)]
@@ -36,7 +36,7 @@ impl FromWorld for DebugUiState {
                 })),
             );
             debug_fields.push(("Object", debug_object.id()));
-            let rejection: EField<Vec2<i32>, Cell> = *physics.rejection;
+            let rejection: EField<Vec2<i32>, Cell> = *physics.prev_rejection;
             let debug_rejection: EField<f32, Cell> = fields.create_bind(
                 "debug-rejection",
                 rejection.map(track_nc!(|v| { v.cast_f32().norm() / 4.0 })),
@@ -48,6 +48,12 @@ impl FromWorld for DebugUiState {
                 delta.map(track_nc!(|v| { v.cast_f32().norm() / 4.0 })),
             );
             debug_fields.push(("Delta", debug_delta.id()));
+            let lock: EField<u32, Cell> = **physics.lock;
+            let debug_lock: EField<f32, Cell> = fields.create_bind(
+                "debug-lock",
+                lock.map(track_nc!(|x| { x.cast_f32() / 2.0 })),
+            );
+            debug_fields.push(("Lock", debug_lock.id()));
         }
         if let Some(impeller) = world.get_resource::<ImpellerFields>() {
             let mass: EField<f32, Cell> = *impeller.mass;
@@ -97,7 +103,11 @@ fn activate_renders(
     debug_params.active_field = state.debug_fields[state.current_index].1;
 }
 
-fn render_ui(mut state: ResMut<DebugUiState>, mut ctx: UiContext) {
+fn render_ui(
+    mut state: ResMut<DebugUiState>,
+    mut ctx: UiContext,
+    collisions: Res<CollisionFields>,
+) {
     let DebugUiState {
         activate_debug_render,
         debug_fields,
@@ -111,6 +121,8 @@ fn render_ui(mut state: ResMut<DebugUiState>, mut ctx: UiContext) {
         for (i, (name, _)) in debug_fields.iter().enumerate() {
             ui.radio_value(current_index, i, name);
         }
+        ui.separator();
+        ui.label(format!("Collisions: {:?}", collisions.domain.len.lock()));
     });
 }
 

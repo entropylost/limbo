@@ -10,13 +10,14 @@ use render::agx::AgXTonemapPlugin;
 use ui::debug::DebugUiPlugin;
 use ui::UiPlugin;
 use world::flow::FlowPlugin;
+use world::physics::{InitData, NULL_OBJECT};
 
 use crate::render::debug::DebugPlugin;
 use crate::render::dither::DitherPlugin;
 use crate::render::light::{LightConstants, LightParameters, LightPlugin};
 use crate::render::{RenderParameters, RenderPlugin};
 use crate::world::impeller::ImpellerPlugin;
-use crate::world::physics::{PhysicsPlugin, RigidBodyContext};
+use crate::world::physics::PhysicsPlugin;
 use crate::world::WorldPlugin;
 
 pub mod prelude;
@@ -69,99 +70,72 @@ fn main() {
         .add_plugins(WorldPlugin)
         .add_plugins(PhysicsPlugin)
         .add_plugins(UiPlugin)
-        .add_plugins(ImpellerPlugin)
-        .add_plugins(FlowPlugin)
         .add_plugins(RenderPlugin::default())
         .add_plugins(AgXTonemapPlugin)
         .add_plugins(DitherPlugin)
         .add_plugins(LightPlugin)
         .add_plugins(DebugPlugin)
         .add_plugins(DebugUiPlugin)
-        .add_plugins(world::tiled_test::TiledTestPlugin)
-        .add_systems(Startup, setup)
-        .add_systems(PreUpdate, (apply_player_force, update_viewport).chain())
+        .add_systems(Startup, setup_init_data)
+        .insert_resource(Camera {
+            position: Vector2::new(64.0, 64.0),
+        })
+        .add_systems(PreUpdate, (move_camera, update_viewport).chain())
         .run();
 }
 
-#[derive(Component)]
-struct Player {
-    body: RigidBodyHandle,
-}
-
-fn apply_player_force(
-    input: Res<ButtonInput<KeyCode>>,
-    mut rb_context: ResMut<RigidBodyContext>,
-    players: Query<&Player>,
-) {
-    for player in players.iter() {
-        let player = &mut rb_context.bodies[player.body];
-        // player.set_rotation(UnitComplex::from_angle(PI / 2.0), true);
-        let mut force = Vector2::zeros();
-        if input.pressed(KeyCode::KeyA) {
-            force.x -= 1.0;
-        }
-        if input.pressed(KeyCode::KeyD) {
-            force.x += 1.0;
-        }
-        if input.pressed(KeyCode::KeyW) {
-            force.y += 1.0;
-        }
-        if input.pressed(KeyCode::KeyS) {
-            force.y -= 1.0;
-        }
-        if force.norm() > 0.0 {
-            let force = force.normalize() / 2.0;
-            player.apply_impulse(force, true);
-        }
-        if input.pressed(KeyCode::Space) {
-            player.set_linvel(Vector2::new(0.0, 0.0), true);
+fn setup_init_data(mut commands: Commands) {
+    let mut cells = [[NULL_OBJECT; 256]; 256];
+    let platform = 0;
+    let block = 1;
+    for x in 64..192 {
+        for y in 128 - 8..128 + 8 {
+            cells[x as usize][y as usize] = platform;
         }
     }
+    for x in 0..8 {
+        for y in 0..8 {
+            cells[x as usize + 64][y as usize + 170] = block;
+        }
+    }
+    commands.insert_resource(InitData {
+        cells,
+        object_velocities: vec![Vector2::new(0.0, 0.0), Vector2::new(0.0, -0.1)],
+        object_angvels: vec![0.0, 0.0],
+    });
 }
 
-#[derive(Component)]
-pub struct ActivePlayer;
+#[derive(Resource)]
+struct Camera {
+    position: Vector2<f32>,
+}
+
+fn move_camera(input: Res<ButtonInput<KeyCode>>, mut camera: ResMut<Camera>) {
+    let mut force = Vector2::zeros();
+    if input.pressed(KeyCode::KeyA) {
+        force.x -= 1.0;
+    }
+    if input.pressed(KeyCode::KeyD) {
+        force.x += 1.0;
+    }
+    if input.pressed(KeyCode::KeyW) {
+        force.y += 1.0;
+    }
+    if input.pressed(KeyCode::KeyS) {
+        force.y -= 1.0;
+    }
+    camera.position += force;
+}
 
 fn update_viewport(
     mut render_parameters: ResMut<RenderParameters>,
     light_constants: Option<Res<LightConstants>>,
     light_parameters: Option<ResMut<LightParameters>>,
-    rb_context: Res<RigidBodyContext>,
-    players: Query<&Player, With<ActivePlayer>>,
+    camera: Res<Camera>,
 ) {
-    let player = players.single();
-    let position = rb_context.bodies[player.body].translation();
-    render_parameters.view_center = *position;
+    let position = camera.position;
+    render_parameters.view_center = position;
     if let Some(mut lp) = light_parameters {
         lp.set_center(&light_constants.unwrap(), Vector2::repeat(64));
-        // position.map(|x| x.round() as i32)
     }
-}
-
-fn setup(mut commands: Commands, mut rb_context: ResMut<RigidBodyContext>) {
-    //  let body = RigidBodyBuilder::fixed()
-    //      .translation(Vector2::new(20.0, 20.0))
-    //      .build();
-    //  let collider = ColliderBuilder::cuboid(6.0, 50.0).build();
-    //  rb_context.insert2(body, collider);
-    let mut body = RigidBodyBuilder::dynamic()
-        .translation(Vector2::new(64.0, 20.0))
-        .angvel(0.01)
-        .build();
-    body.activation_mut().linear_threshold = 0.1;
-    body.activation_mut().angular_threshold = 0.001;
-
-    let collider = ColliderBuilder::cuboid(50.0, 6.0).build();
-    rb_context.insert2(body, collider);
-
-    // 0
-    let mut player = RigidBodyBuilder::dynamic()
-        .translation(Vector2::new(64.0, 64.0))
-        .lock_rotations()
-        .build();
-    player.activation_mut().linear_threshold = 0.1;
-    player.activation_mut().angular_threshold = 0.001;
-    let player_collider = ColliderBuilder::cuboid(5.0, 5.0).build();
-    let player = rb_context.insert2(player, player_collider);
-    commands.spawn((Player { body: player }, ActivePlayer));
 }

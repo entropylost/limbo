@@ -214,7 +214,7 @@ fn collide_kernel(
             *impeller.mass.var(&cell) += 0.1;
             *impeller.object.var(&cell) = physics.object.expr(&cell);
             *impeller.velocity.var(&cell) = ((impeller.velocity.var(&cell) * last_mass
-                + 0.1 * physics.velocity.expr(&cell))
+        /* + 0.1 * physics.velocity.expr(&cell) */)
                 / impeller.mass.expr(&cell))
             .clamp(-MAX_VEL, MAX_VEL);
         }
