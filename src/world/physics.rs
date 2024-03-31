@@ -10,6 +10,7 @@ use sefirot::utils::Singleton;
 use crate::prelude::*;
 
 const NUM_OBJECTS: usize = 16;
+const RESTITUTION: f32 = 0.1;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, UniqueId)]
 #[repr(transparent)]
@@ -281,8 +282,15 @@ fn predict_kernel(device: Res<Device>, objects: Res<ObjectFields>) -> Kernel<fn(
 #[kernel]
 fn finalize_objects_kernel(device: Res<Device>, objects: Res<ObjectFields>) -> Kernel<fn()> {
     Kernel::build(&device, &objects.domain, &|obj| {
-        *objects.velocity.var(&obj) = objects.predicted_velocity.expr(&obj);
-        *objects.angvel.var(&obj) = objects.predicted_angvel.expr(&obj);
+        *objects.velocity.var(&obj) = objects.predicted_velocity.expr(&obj)
+            + objects.impulse.expr(&obj) / objects.mass.expr(&obj).cast_f32() * RESTITUTION;
+        *objects.angvel.var(&obj) = objects.predicted_angvel.expr(&obj)
+            + objects.angular_impulse.expr(&obj) / objects.moment.expr(&obj).cast_f32()
+                * RESTITUTION;
+
+        // TODO: These would make more sense to do after summing velocities.
+        *objects.predicted_velocity.var(&obj) = objects.velocity.expr(&obj);
+        *objects.predicted_angvel.var(&obj) = objects.angvel.expr(&obj);
 
         *objects.position.var(&obj) = objects.predicted_position.expr(&obj);
         *objects.angle.var(&obj) = objects.predicted_angle.expr(&obj);
@@ -502,20 +510,6 @@ fn apply_impulses_kernel(device: Res<Device>, objects: Res<ObjectFields>) -> Ker
 }
 
 #[kernel]
-fn apply_impulses_with_restitution_kernel(
-    device: Res<Device>,
-    objects: Res<ObjectFields>,
-) -> Kernel<fn()> {
-    Kernel::build(&device, &objects.domain, &|obj| {
-        // Do these after moving.
-        *objects.predicted_velocity.var(&obj) = objects.velocity.expr(&obj)
-            + objects.impulse.expr(&obj) / objects.mass.expr(&obj).cast_f32() * 1.1;
-        *objects.predicted_angvel.var(&obj) = objects.angvel.expr(&obj)
-            + objects.angular_impulse.expr(&obj) / objects.moment.expr(&obj).cast_f32() * 1.1;
-    })
-}
-
-#[kernel]
 fn collide_kernel(
     device: Res<Device>,
     physics: Res<PhysicsFields>,
@@ -712,7 +706,7 @@ fn update_physics(collisions: Res<CollisionFields>, physics: Res<PhysicsFields>)
         collide_kernel.dispatch(),
         apply_impulses_kernel.dispatch(),
         collide_kernel.dispatch(),
-        apply_impulses_with_restitution_kernel.dispatch(),
+        apply_impulses_kernel.dispatch(),
     )
         .chain();
     let pre_move = (
@@ -777,7 +771,6 @@ impl Plugin for PhysicsPlugin {
                     init_collide_kernel,
                     init_compute_edge_collisions_kernel,
                     init_apply_impulses_kernel,
-                    init_apply_impulses_with_restitution_kernel,
                     init_compute_rejection_kernel,
                     init_copy_rejection_kernel,
                 ),

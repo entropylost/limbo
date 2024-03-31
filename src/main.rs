@@ -4,20 +4,15 @@ use bevy::window::WindowResolution;
 use bevy_sefirot::display::DisplayPlugin;
 use bevy_sefirot::prelude::*;
 use nalgebra::Vector2;
-use rapier2d::dynamics::{RigidBodyBuilder, RigidBodyHandle};
-use rapier2d::geometry::ColliderBuilder;
-use render::agx::AgXTonemapPlugin;
-use ui::debug::DebugUiPlugin;
-use ui::UiPlugin;
-use world::flow::FlowPlugin;
-use world::physics::{InitData, NULL_OBJECT};
 
+use crate::render::agx::AgXTonemapPlugin;
 use crate::render::debug::DebugPlugin;
 use crate::render::dither::DitherPlugin;
 use crate::render::light::{LightConstants, LightParameters, LightPlugin};
 use crate::render::{RenderParameters, RenderPlugin};
-use crate::world::impeller::ImpellerPlugin;
-use crate::world::physics::PhysicsPlugin;
+use crate::ui::debug::DebugUiPlugin;
+use crate::ui::UiPlugin;
+use crate::world::physics::{InitData, PhysicsPlugin, NULL_OBJECT};
 use crate::world::WorldPlugin;
 
 pub mod prelude;

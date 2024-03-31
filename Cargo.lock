@@ -1485,19 +1485,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crossbeam"
-version = "0.8.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1137cd7e7fc0fb5d3c5a8678be38ec56e819125d8d7907411fe24ccb943faca8"
-dependencies = [
- "crossbeam-channel",
- "crossbeam-deque",
- "crossbeam-epoch",
- "crossbeam-queue",
- "crossbeam-utils",
-]
-
-[[package]]
 name = "crossbeam-channel"
 version = "0.5.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1521,15 +1508,6 @@ name = "crossbeam-epoch"
 version = "0.9.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b82ac4a3c2ca9c3460964f020e1402edd5753411d7737aa39c3714ad1b5420e"
-dependencies = [
- "crossbeam-utils",
-]
-
-[[package]]
-name = "crossbeam-queue"
-version = "0.3.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df0346b5d5e76ac2fe4e327c5fd1118d6be7c51dfb18f9b7922923f287471e35"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -2221,7 +2199,6 @@ checksum = "bd070e393353796e801d209ad339e89596eb4c8d430d18ede6a1cced8fafbd99"
 dependencies = [
  "autocfg",
  "hashbrown 0.12.3",
- "serde",
 ]
 
 [[package]]
@@ -2399,7 +2376,6 @@ dependencies = [
  "nalgebra",
  "once_cell",
  "parking_lot",
- "rapier2d",
  "sefirot",
  "sefirot_grid",
  "winit",
@@ -2773,17 +2749,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "num-derive"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed3955f1a9c7c0c15e092f9c887db08b1fc683305fdf6eb6684f22555355e202"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.55",
-]
-
-[[package]]
 name = "num-integer"
 version = "0.1.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3002,28 +2967,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "parry2d"
-version = "0.13.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a996b83a7a12522b395c54f4ba59593b782e8004794c0212a2f487ed7ac6e419"
-dependencies = [
- "approx",
- "arrayvec",
- "bitflags 1.3.2",
- "downcast-rs",
- "either",
- "indexmap 1.9.3",
- "nalgebra",
- "num-derive",
- "num-traits",
- "rustc-hash",
- "simba",
- "slab",
- "smallvec",
- "spade",
-]
-
-[[package]]
 name = "paste"
 version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3220,26 +3163,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c8a99fddc9f0ba0a85884b8d14e3592853e787d581ca1816c91349b10e4eeab"
 
 [[package]]
-name = "rapier2d"
-version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48a3ec4ae89e0837c0ff6f29af32a8e5d78dfabe2273dcd945cfaf3f5d2b1501"
-dependencies = [
- "approx",
- "arrayvec",
- "bit-vec",
- "bitflags 1.3.2",
- "crossbeam",
- "downcast-rs",
- "nalgebra",
- "num-derive",
- "num-traits",
- "parry2d",
- "rustc-hash",
- "simba",
-]
-
-[[package]]
 name = "raw-window-handle"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3344,12 +3267,6 @@ name = "renderdoc-sys"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
-
-[[package]]
-name = "robust"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cbf4a6aa5f6d6888f39e980649f3ad6b666acdce1d78e95b8a2cb076e687ae30"
 
 [[package]]
 name = "ron"
@@ -3542,7 +3459,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "061507c94fc6ab4ba1c9a0305018408e312e17c041eb63bef8aa726fa33aceae"
 dependencies = [
  "approx",
- "libm",
  "num-complex",
  "num-traits",
  "paste",
@@ -3614,18 +3530,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6845563ada680337a52d43bb0b29f396f2d911616f6573012645b9e3d048a49"
 dependencies = [
  "serde",
-]
-
-[[package]]
-name = "spade"
-version = "2.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61addf9117b11d1f5b4bf6fe94242ba25f59d2d4b2080544b771bd647024fd00"
-dependencies = [
- "hashbrown 0.14.3",
- "num-traits",
- "robust",
- "smallvec",
 ]
 
 [[package]]
