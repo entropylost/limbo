@@ -60,6 +60,7 @@ pub struct ObjectFields {
     // For collisions.
     pub impulse: AField<Vec2<f32>, Object>,
     pub angular_impulse: AField<f32, Object>,
+    pub num_constraints: AField<u32, Object>,
     _fields: FieldSet,
     buffers: ObjectBuffers,
 }
@@ -135,6 +136,8 @@ fn setup_objects(mut commands: Commands, device: Res<Device>) {
     let impulse = fields.create_bind("object-impulse", domain.create_buffer(&device));
     let angular_impulse =
         fields.create_bind("object-angular-impulse", domain.create_buffer(&device));
+    let num_constraints =
+        fields.create_bind("object-num-constraints", domain.create_buffer(&device));
 
     let objects = ObjectFields {
         domain,
@@ -150,6 +153,7 @@ fn setup_objects(mut commands: Commands, device: Res<Device>) {
         predicted_angvel,
         impulse,
         angular_impulse,
+        num_constraints,
         _fields: fields,
         buffers,
     };
@@ -259,30 +263,25 @@ fn clear_objects_kernel(
 #[kernel]
 fn predict_kernel(device: Res<Device>, objects: Res<ObjectFields>) -> Kernel<fn()> {
     Kernel::build(&device, &objects.domain, &|obj| {
-        *objects.predicted_position.var(&obj) = objects.position.expr(&obj)
-            + objects.velocity.expr(&obj)
-            + objects.impulse.expr(&obj) / objects.mass.expr(&obj).cast_f32();
-        *objects.predicted_angle.var(&obj) = objects.angle.expr(&obj)
-            + objects.angvel.expr(&obj)
-            + objects.angular_impulse.expr(&obj) / objects.moment.expr(&obj).cast_f32();
-        *objects.predicted_velocity.var(&obj) = objects.velocity.expr(&obj);
-        *objects.predicted_angvel.var(&obj) = objects.angvel.expr(&obj);
+        *objects.predicted_position.var(&obj) =
+            objects.position.expr(&obj) + objects.predicted_velocity.expr(&obj);
+        *objects.predicted_angle.var(&obj) =
+            objects.angle.expr(&obj) + objects.predicted_angvel.expr(&obj);
     })
 }
 
 #[kernel]
 fn finalize_objects_kernel(device: Res<Device>, objects: Res<ObjectFields>) -> Kernel<fn()> {
     Kernel::build(&device, &objects.domain, &|obj| {
-        *objects.velocity.var(&obj) +=
-            objects.impulse.expr(&obj) / objects.mass.expr(&obj).cast_f32();
-        *objects.angvel.var(&obj) +=
-            objects.angular_impulse.expr(&obj) / objects.moment.expr(&obj).cast_f32();
+        *objects.velocity.var(&obj) = objects.predicted_velocity.expr(&obj);
+        *objects.angvel.var(&obj) = objects.predicted_angvel.expr(&obj);
 
         *objects.position.var(&obj) = objects.predicted_position.expr(&obj);
         *objects.angle.var(&obj) = objects.predicted_angle.expr(&obj);
 
         *objects.impulse.var(&obj) = Vec2::splat(0_f32);
         *objects.angular_impulse.var(&obj) = 0.0;
+        *objects.num_constraints.var(&obj) = 0;
     })
 }
 
@@ -328,6 +327,9 @@ fn move_kernel(
         let predicted_pos = objects.predicted_position.expr(&obj).round().cast_i32() + rotated_diff;
         let predicted_cell = cell.at(predicted_pos);
 
+        // TODO: Consider storing the object or the original position instead?
+        // Then, can use that for calculating num_constraints and stuff.
+        // May result in issues with destroying overlapping places though.
         if physics.lock.atomic(&predicted_cell).fetch_add(1) == 0 {
             *physics.delta.var(&predicted_cell) = *predicted_cell - *cell;
             *physics.predicted_object.var(&predicted_cell) = *obj;
@@ -388,6 +390,9 @@ fn setup_collide_kernel(
         *collision.b_offset = b_offset;
         *collision.normal = normal;
         *collision.normal_mass = 1.0 / inv_normal_mass;
+
+        objects.num_constraints.atomic(&a_obj).fetch_add(1);
+        objects.num_constraints.atomic(&b_obj).fetch_add(1);
     })
 }
 
@@ -398,6 +403,19 @@ fn apply_impulses_kernel(device: Res<Device>, objects: Res<ObjectFields>) -> Ker
             + objects.impulse.expr(&obj) / objects.mass.expr(&obj).cast_f32();
         *objects.predicted_angvel.var(&obj) = objects.angvel.expr(&obj)
             + objects.angular_impulse.expr(&obj) / objects.moment.expr(&obj).cast_f32();
+    })
+}
+
+#[kernel]
+fn apply_impulses_with_restitution_kernel(
+    device: Res<Device>,
+    objects: Res<ObjectFields>,
+) -> Kernel<fn()> {
+    Kernel::build(&device, &objects.domain, &|obj| {
+        *objects.predicted_velocity.var(&obj) = objects.velocity.expr(&obj)
+            + objects.impulse.expr(&obj) / objects.mass.expr(&obj).cast_f32() * 1.5;
+        *objects.predicted_angvel.var(&obj) = objects.angvel.expr(&obj)
+            + objects.angular_impulse.expr(&obj) / objects.moment.expr(&obj).cast_f32() * 1.5;
     })
 }
 
@@ -417,6 +435,12 @@ fn collide_kernel(
         let a_offset = **collision.a_offset;
         let b_offset = **collision.b_offset;
 
+        let constraint_multiplier = max(
+            objects.num_constraints.expr(&a_obj),
+            objects.num_constraints.expr(&b_obj),
+        )
+        .cast_f32();
+
         let relative_velocity = objects.predicted_velocity.expr(&b_obj)
             + objects.angvel.expr(&b_obj).cross(b_offset)
             - objects.predicted_velocity.expr(&a_obj)
@@ -429,6 +453,7 @@ fn collide_kernel(
         let last_total_impulse = **collision.total_impulse;
         *collision.total_impulse = max(last_total_impulse + impulse, 0.0);
         let impulse = collision.total_impulse - last_total_impulse;
+        let impulse = impulse * collision.normal / constraint_multiplier;
 
         let a_impulse = *objects.impulse.atomic(&a_obj);
         a_impulse.x.fetch_sub(impulse.x);
@@ -652,6 +677,7 @@ impl Plugin for PhysicsPlugin {
                     init_setup_collide_kernel,
                     init_collide_kernel,
                     init_apply_impulses_kernel,
+                    init_apply_impulses_with_restitution_kernel,
                     init_compute_rejection_kernel,
                     init_copy_rejection_kernel,
                 ),
