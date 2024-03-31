@@ -21,6 +21,9 @@ pub type Object = Expr<u32>;
 #[derive(Value, Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Collision {
     a_position: Vec2<i32>,
+    b_position: Vec2<i32>,
+    total_impulse: Vec2<f32>,
+    normal: Vec2<f32>,
     predicted_collision: Vec2<i32>,
 }
 
@@ -48,7 +51,9 @@ pub struct ObjectFields {
     pub predicted_angle: VField<f32, Object>,
 
     pub velocity: VField<Vec2<f32>, Object>,
+    pub predicted_velocity: VField<Vec2<f32>, Object>,
     pub angvel: VField<f32, Object>,
+    pub predicted_angvel: VField<f32, Object>,
     // For collisions.
     pub impulse: AField<Vec2<f32>, Object>,
     pub angular_impulse: AField<f32, Object>,
@@ -80,7 +85,6 @@ pub struct PhysicsFields {
     pub predicted_object: VField<u32, Cell>,
     pub delta: VField<Vec2<i32>, Cell>,
     pub lock: AField<u32, Cell>,
-    pub locked_revmap: VField<Vec2<i32>, Cell>,
     pub prev_rejection: VField<Vec2<i32>, Cell>,
     pub rejection: VField<Vec2<i32>, Cell>,
     _fields: FieldSet,
@@ -119,7 +123,11 @@ fn setup_objects(mut commands: Commands, device: Res<Device>) {
         "object-velocity",
         domain.map_buffer(buffers.velocity.view(..)),
     );
+    let predicted_velocity =
+        fields.create_bind("object-predicted-velocity", domain.create_buffer(&device));
     let angvel = fields.create_bind("object-angvel", domain.map_buffer(buffers.angvel.view(..)));
+    let predicted_angvel =
+        fields.create_bind("object-predicted-angvel", domain.create_buffer(&device));
 
     let impulse = fields.create_bind("object-impulse", domain.create_buffer(&device));
     let angular_impulse =
@@ -134,7 +142,9 @@ fn setup_objects(mut commands: Commands, device: Res<Device>) {
         angle,
         predicted_angle,
         velocity,
+        predicted_velocity,
         angvel,
+        predicted_angvel,
         impulse,
         angular_impulse,
         _fields: fields,
@@ -152,7 +162,6 @@ fn setup_physics(mut commands: Commands, device: Res<Device>, world: Res<World>)
         *fields.create_bind("physics-predicted-object", world.create_buffer(&device));
     let delta = fields.create_bind("physics-delta", world.create_texture(&device));
     let lock = fields.create_bind("physics-lock", world.map_buffer(lock_buffer.view(..)));
-    let locked_revmap = *fields.create_bind("physics-locked-revmap", world.create_buffer(&device));
 
     let prev_rejection = *fields.create_bind("physics-rejection", world.create_buffer(&device));
     let rejection = *fields.create_bind("physics-next-rejection", world.create_buffer(&device));
@@ -162,7 +171,6 @@ fn setup_physics(mut commands: Commands, device: Res<Device>, world: Res<World>)
         predicted_object,
         delta,
         lock,
-        locked_revmap,
         prev_rejection,
         rejection,
         _fields: fields,
@@ -248,24 +256,28 @@ fn clear_objects_kernel(
 #[kernel]
 fn predict_kernel(device: Res<Device>, objects: Res<ObjectFields>) -> Kernel<fn()> {
     Kernel::build(&device, &objects.domain, &|obj| {
-        *objects.velocity.var(&obj) +=
-            objects.impulse.expr(&obj) / objects.mass.expr(&obj).cast_f32();
-        *objects.impulse.var(&obj) = Vec2::splat(0_f32);
-        *objects.predicted_position.var(&obj) =
-            objects.position.expr(&obj) + objects.velocity.expr(&obj);
-
-        *objects.angvel.var(&obj) +=
-            objects.angular_impulse.expr(&obj) / objects.moment.expr(&obj).cast_f32();
-        *objects.angular_impulse.var(&obj) = 0.0;
-        *objects.predicted_angle.var(&obj) = objects.angle.expr(&obj) + objects.angvel.expr(&obj);
+        *objects.predicted_position.var(&obj) = objects.position.expr(&obj)
+            + objects.velocity.expr(&obj)
+            + objects.impulse.expr(&obj) / objects.mass.expr(&obj).cast_f32();
+        *objects.predicted_angle.var(&obj) = objects.angle.expr(&obj)
+            + objects.angvel.expr(&obj)
+            + objects.angular_impulse.expr(&obj) / objects.moment.expr(&obj).cast_f32();
     })
 }
 
 #[kernel]
 fn finalize_objects_kernel(device: Res<Device>, objects: Res<ObjectFields>) -> Kernel<fn()> {
     Kernel::build(&device, &objects.domain, &|obj| {
+        *objects.velocity.var(&obj) +=
+            objects.impulse.expr(&obj) / objects.mass.expr(&obj).cast_f32();
+        *objects.angvel.var(&obj) +=
+            objects.angular_impulse.expr(&obj) / objects.moment.expr(&obj).cast_f32();
+
         *objects.position.var(&obj) = objects.predicted_position.expr(&obj);
         *objects.angle.var(&obj) = objects.predicted_angle.expr(&obj);
+
+        *objects.impulse.var(&obj) = Vec2::splat(0_f32);
+        *objects.angular_impulse.var(&obj) = 0.0;
     })
 }
 
@@ -311,11 +323,9 @@ fn move_kernel(
         let predicted_pos = objects.predicted_position.expr(&obj).round().cast_i32() + rotated_diff;
         let predicted_cell = cell.at(predicted_pos);
 
-        *physics.delta.var(&cell) = predicted_pos - *cell;
-
         if physics.lock.atomic(&predicted_cell).fetch_add(1) == 0 {
-            *physics.locked_revmap.var(&cell) = *cell - predicted_pos;
-            *physics.predicted_object.var(&cell) = *obj;
+            *physics.delta.var(&predicted_cell) = *predicted_cell - *cell;
+            *physics.predicted_object.var(&predicted_cell) = *obj;
         } else {
             let index = collisions.next.atomic().fetch_add(1);
             *collisions.data.var(&cell.at(index)) = Collision::from_comps_expr(CollisionComps {
@@ -338,7 +348,7 @@ fn collide_kernel(
         let a = el.at(collision.a_position);
         let a_obj = el.at(physics.object.expr(&a));
         let pos = collision.predicted_collision;
-        let b = el.at(physics.locked_revmap.expr(&el.at(pos)) + pos);
+        let b = el.at(pos - physics.delta.expr(&el.at(pos)));
         let b_obj = el.at(physics.object.expr(&b));
         // From a to b.
         let normal = rotate(
@@ -348,23 +358,24 @@ fn collide_kernel(
             physics.rejection.expr(&b).cast_f32(),
             objects.predicted_angle.expr(&b_obj) - objects.angle.expr(&b_obj),
         );
-        let force = normal * 0.5;
+        let force = normal * 2.0;
         let a_impulse = *objects.impulse.atomic(&a_obj);
         a_impulse.x.fetch_sub(force.x);
         a_impulse.y.fetch_sub(force.y);
         let b_impulse = *objects.impulse.atomic(&b_obj);
         b_impulse.x.fetch_add(force.x);
         b_impulse.y.fetch_add(force.y);
-    })
-}
-
-#[kernel]
-fn apply_impulses_kernel(device: Res<Device>, objects: Res<ObjectFields>) -> Kernel<fn()> {
-    Kernel::build(&device, &objects.domain, &|obj| {
-        *objects.velocity.var(&obj) +=
-            objects.impulse.expr(&obj) / objects.mass.expr(&obj).cast_f32();
-        *objects.angvel.var(&obj) +=
-            objects.angular_impulse.expr(&obj) / objects.moment.expr(&obj).cast_f32();
+        // TODO: Apply torque.
+        let a_offset = pos.cast_f32() - objects.predicted_position.expr(&a_obj).round();
+        objects
+            .angular_impulse
+            .atomic(&a_obj)
+            .fetch_add(force.x * a_offset.y - force.y * a_offset.x);
+        let b_offset = pos.cast_f32() - objects.predicted_position.expr(&b_obj).round();
+        objects
+            .angular_impulse
+            .atomic(&b_obj)
+            .fetch_sub(force.x * b_offset.y - force.y * b_offset.x);
     })
 }
 
@@ -382,7 +393,12 @@ fn compute_rejection_kernel(
         }
         let best_dist = i32::MAX.var();
         let best_pos = Vec2::splat_expr(0_i32).var();
-        for dir in GridDirection::iter_all() {
+        for dir in [
+            GridDirection::Up,
+            GridDirection::Down,
+            GridDirection::Left,
+            GridDirection::Right,
+        ] {
             let neighbor = world.in_dir(&cell, dir);
             let neighbor_pos = if physics.object.expr(&neighbor) == obj {
                 physics.prev_rejection.expr(&neighbor)
@@ -391,7 +407,7 @@ fn compute_rejection_kernel(
             } + dir.as_vec();
             if physics.object.expr(&cell.at(neighbor_pos + *cell)) != obj {
                 let dist = neighbor_pos.x * neighbor_pos.x + neighbor_pos.y * neighbor_pos.y;
-                if dist <= best_dist {
+                if dist < best_dist {
                     *best_dist = dist;
                     *best_pos = neighbor_pos;
                     // TODO: If equal, cancel out. Have to also prevent feedback from farther away things.
@@ -409,9 +425,10 @@ fn copy_rejection_kernel(
     world: Res<World>,
 ) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|cell| {
-        *physics
-            .prev_rejection
-            .var(&cell.at(*cell + physics.delta.expr(&cell))) = physics.rejection.expr(&cell);
+        // TODO: Rotate.
+        *physics.prev_rejection.var(&cell) = physics
+            .rejection
+            .expr(&cell.at(*cell - physics.delta.expr(&cell)));
     })
 }
 
@@ -433,6 +450,7 @@ fn copy_rejection_kernel(
 
 fn init_physics(
     init_data: Res<InitData>,
+    world: Res<World>,
     objects: Res<ObjectFields>,
     physics: Res<PhysicsFields>,
 ) -> impl AsNodes {
@@ -458,7 +476,9 @@ fn init_physics(
     let object_centers = object_centers
         .into_iter()
         .enumerate()
-        .map(|(i, sum)| sum.cast::<i32>() / (object_masses[i] as i32).max(1))
+        .map(|(i, sum)| {
+            sum.cast::<i32>() / (object_masses[i] as i32).max(1) + Vector2::from(world.start())
+        })
         .collect::<Vec<_>>();
     let object_positions = object_centers
         .iter()
@@ -500,21 +520,27 @@ fn init_physics(
 
 fn update_physics(collisions: Res<CollisionFields>, physics: Res<PhysicsFields>) -> impl AsNodes {
     (
+        collide_kernel.dispatch(),
+        physics
+            .lock_buffer
+            .copy_from_vec(vec![0; physics.lock_buffer.len()]),
+        collisions.next.write_host(0),
+        predict_kernel.dispatch(),
+        move_kernel.dispatch(),
+        finalize_objects_kernel.dispatch(),
+        finalize_move_kernel.dispatch(),
+        // Reset lock, buffers.
+        copy_rejection_kernel.dispatch(),
+        compute_rejection_kernel.dispatch(),
         // TODO: Move to end, currently here for debugging.
         physics
             .lock_buffer
             .copy_from_vec(vec![0; physics.lock_buffer.len()]),
+        collisions.next.write_host(0),
         predict_kernel.dispatch(),
         move_kernel.dispatch(),
+        // TODO: This locks it. Need dispatch indirect.
         collisions.next.read_to(&collisions.domain.len),
-        // collide_kernel.dispatch(),
-        // apply_impulses_kernel.dispatch(),
-        finalize_objects_kernel.dispatch(),
-        finalize_move_kernel.dispatch(),
-        // Reset lock, buffers.
-        collisions.next.write_host(0),
-        copy_rejection_kernel.dispatch(),
-        compute_rejection_kernel.dispatch(),
     )
         .chain()
 }
@@ -532,7 +558,6 @@ impl Plugin for PhysicsPlugin {
                     init_finalize_move_kernel,
                     init_move_kernel,
                     init_collide_kernel,
-                    init_apply_impulses_kernel,
                     init_compute_rejection_kernel,
                     init_copy_rejection_kernel,
                 ),

@@ -36,7 +36,7 @@ impl FromWorld for DebugUiState {
                 })),
             );
             debug_fields.push(("Object", debug_object.id()));
-            let rejection: EField<Vec2<i32>, Cell> = *physics.prev_rejection;
+            let rejection: EField<Vec2<i32>, Cell> = *physics.rejection;
             let debug_rejection: EField<f32, Cell> = fields.create_bind(
                 "debug-rejection",
                 rejection.map(track_nc!(|v| { v.cast_f32().norm() / 4.0 })),

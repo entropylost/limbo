@@ -94,6 +94,11 @@ fn pause_system(
             WorldState::Running => WorldState::Paused,
             WorldState::Paused => WorldState::Running,
         });
+        // TODO: This is suboptimal but works decently well for stepping.
+    } else if keys.just_pressed(KeyCode::Period) {
+        next.0 = Some(WorldState::Running);
+    } else if keys.pressed(KeyCode::Period) {
+        next.0 = Some(WorldState::Paused);
     }
 }
 

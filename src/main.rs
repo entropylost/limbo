@@ -95,12 +95,12 @@ fn setup_init_data(mut commands: Commands) {
     }
     for x in 0..8 {
         for y in 0..8 {
-            cells[x as usize + 64][y as usize + 170] = block;
+            cells[x as usize + 66][y as usize + 170] = block;
         }
     }
     commands.insert_resource(InitData {
         cells,
-        object_velocities: vec![Vector2::new(0.0, 0.0), Vector2::new(0.0, -0.1)],
+        object_velocities: vec![Vector2::new(0.0, 0.0), Vector2::new(0.0, -0.7)],
         object_angvels: vec![0.0, 0.0],
     });
 }
