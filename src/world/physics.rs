@@ -18,13 +18,16 @@ pub struct ObjectHost(u32);
 pub type Object = Expr<u32>;
 
 #[repr(C)]
-#[derive(Value, Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Value, Debug, Copy, Clone, PartialEq)]
 pub struct Collision {
     a_position: Vec2<i32>,
     b_position: Vec2<i32>,
-    total_impulse: Vec2<f32>,
-    normal: Vec2<f32>,
+    a_offset: Vec2<f32>,
+    b_offset: Vec2<f32>,
     predicted_collision: Vec2<i32>,
+    normal: Vec2<f32>,
+    normal_mass: f32,
+    total_impulse: Vec2<f32>,
 }
 
 pub struct ObjectBuffers {
@@ -262,6 +265,8 @@ fn predict_kernel(device: Res<Device>, objects: Res<ObjectFields>) -> Kernel<fn(
         *objects.predicted_angle.var(&obj) = objects.angle.expr(&obj)
             + objects.angvel.expr(&obj)
             + objects.angular_impulse.expr(&obj) / objects.moment.expr(&obj).cast_f32();
+        *objects.predicted_velocity.var(&obj) = objects.velocity.expr(&obj);
+        *objects.predicted_angvel.var(&obj) = objects.angvel.expr(&obj);
     })
 }
 
@@ -330,9 +335,69 @@ fn move_kernel(
             let index = collisions.next.atomic().fetch_add(1);
             *collisions.data.var(&cell.at(index)) = Collision::from_comps_expr(CollisionComps {
                 a_position: *cell,
+                b_position: Vec2::splat_expr(0),
+                a_offset: Vec2::splat_expr(0.0),
+                b_offset: Vec2::splat_expr(0.0),
                 predicted_collision: *predicted_cell,
+                normal: Vec2::splat_expr(0.0),
+                normal_mass: 0.0.expr(),
+                total_impulse: Vec2::splat_expr(0.0),
             });
         }
+    })
+}
+
+#[kernel]
+fn setup_collide_kernel(
+    device: Res<Device>,
+    collisions: Res<CollisionFields>,
+    physics: Res<PhysicsFields>,
+    objects: Res<ObjectFields>,
+) -> Kernel<fn()> {
+    Kernel::build(&device, &collisions.domain, &|el| {
+        let collision = collisions.data.var(&el);
+        let a = el.at(**collision.a_position);
+        let a_obj = el.at(physics.object.expr(&a));
+
+        let pos = **collision.predicted_collision;
+        let b_position = pos - physics.delta.expr(&el.at(pos));
+        let b = el.at(b_position);
+        let b_obj = el.at(physics.object.expr(&b));
+        let normal = rotate(
+            physics.rejection.expr(&a).cast_f32(),
+            objects.predicted_angle.expr(&a_obj) - objects.angle.expr(&a_obj),
+        ) - rotate(
+            physics.rejection.expr(&b).cast_f32(),
+            objects.predicted_angle.expr(&b_obj) - objects.angle.expr(&b_obj),
+        );
+        let normal = normal.normalize();
+
+        let a_offset = objects.predicted_position.expr(&a_obj).round() - pos.cast_f32();
+        let b_offset = objects.predicted_position.expr(&b_obj).round() - pos.cast_f32();
+
+        // TODO: Calculate inverse values as well..
+        let inv_normal_mass = 1.0 / objects.mass.expr(&a_obj).cast_f32()
+            + 1.0 / objects.mass.expr(&b_obj).cast_f32()
+            + 1.0 / objects.moment.expr(&a_obj).cast_f32()
+                * (a_offset.norm() - a_offset.dot(normal).sqr())
+            + 1.0 / objects.moment.expr(&b_obj).cast_f32()
+                * (b_offset.norm() - b_offset.dot(normal).sqr());
+
+        *collision.b_position = b_position;
+        *collision.a_offset = a_offset;
+        *collision.b_offset = b_offset;
+        *collision.normal = normal;
+        *collision.normal_mass = 1.0 / inv_normal_mass;
+    })
+}
+
+#[kernel]
+fn apply_impulses_kernel(device: Res<Device>, objects: Res<ObjectFields>) -> Kernel<fn()> {
+    Kernel::build(&device, &objects.domain, &|obj| {
+        *objects.predicted_velocity.var(&obj) = objects.velocity.expr(&obj)
+            + objects.impulse.expr(&obj) / objects.mass.expr(&obj).cast_f32();
+        *objects.predicted_angvel.var(&obj) = objects.angvel.expr(&obj)
+            + objects.angular_impulse.expr(&obj) / objects.moment.expr(&obj).cast_f32();
     })
 }
 
@@ -344,38 +409,41 @@ fn collide_kernel(
     objects: Res<ObjectFields>,
 ) -> Kernel<fn()> {
     Kernel::build(&device, &collisions.domain, &|el| {
-        let collision = collisions.data.expr(&el);
-        let a = el.at(collision.a_position);
+        let collision = collisions.data.var(&el);
+        let a = el.at(**collision.a_position);
         let a_obj = el.at(physics.object.expr(&a));
-        let pos = collision.predicted_collision;
-        let b = el.at(pos - physics.delta.expr(&el.at(pos)));
+        let b = el.at(**collision.b_position);
         let b_obj = el.at(physics.object.expr(&b));
-        // From a to b.
-        let normal = rotate(
-            physics.rejection.expr(&a).cast_f32(),
-            objects.predicted_angle.expr(&a_obj) - objects.angle.expr(&a_obj),
-        ) - rotate(
-            physics.rejection.expr(&b).cast_f32(),
-            objects.predicted_angle.expr(&b_obj) - objects.angle.expr(&b_obj),
-        );
-        let force = normal * 2.0;
+        let a_offset = **collision.a_offset;
+        let b_offset = **collision.b_offset;
+
+        let relative_velocity = objects.predicted_velocity.expr(&b_obj)
+            + objects.angvel.expr(&b_obj).cross(b_offset)
+            - objects.predicted_velocity.expr(&a_obj)
+            - objects.angvel.expr(&a_obj).cross(a_offset);
+
+        let normal_velocity = relative_velocity.dot(collision.normal);
+
+        let impulse = -normal_velocity * collision.normal_mass; // + bias.
+
+        let last_total_impulse = **collision.total_impulse;
+        *collision.total_impulse = max(last_total_impulse + impulse, 0.0);
+        let impulse = collision.total_impulse - last_total_impulse;
+
         let a_impulse = *objects.impulse.atomic(&a_obj);
-        a_impulse.x.fetch_sub(force.x);
-        a_impulse.y.fetch_sub(force.y);
+        a_impulse.x.fetch_sub(impulse.x);
+        a_impulse.y.fetch_sub(impulse.y);
         let b_impulse = *objects.impulse.atomic(&b_obj);
-        b_impulse.x.fetch_add(force.x);
-        b_impulse.y.fetch_add(force.y);
-        // TODO: Apply torque.
-        let a_offset = pos.cast_f32() - objects.predicted_position.expr(&a_obj).round();
+        b_impulse.x.fetch_add(impulse.x);
+        b_impulse.y.fetch_add(impulse.y);
         objects
             .angular_impulse
             .atomic(&a_obj)
-            .fetch_add(force.x * a_offset.y - force.y * a_offset.x);
-        let b_offset = pos.cast_f32() - objects.predicted_position.expr(&b_obj).round();
+            .fetch_sub(impulse.cross(a_offset));
         objects
             .angular_impulse
             .atomic(&b_obj)
-            .fetch_sub(force.x * b_offset.y - force.y * b_offset.x);
+            .fetch_add(impulse.cross(b_offset));
     })
 }
 
@@ -519,28 +587,52 @@ fn init_physics(
 }
 
 fn update_physics(collisions: Res<CollisionFields>, physics: Res<PhysicsFields>) -> impl AsNodes {
-    (
+    let collide = (
+        setup_collide_kernel.dispatch(),
         collide_kernel.dispatch(),
+        apply_impulses_kernel.dispatch(),
+        collide_kernel.dispatch(),
+        apply_impulses_kernel.dispatch(),
+        collide_kernel.dispatch(),
+        apply_impulses_kernel.dispatch(),
+        collide_kernel.dispatch(),
+        apply_impulses_kernel.dispatch(),
+    )
+        .chain();
+    let pre_move = (
         physics
             .lock_buffer
             .copy_from_vec(vec![0; physics.lock_buffer.len()]),
         collisions.next.write_host(0),
+    );
+    let finish_move = (
         predict_kernel.dispatch(),
         move_kernel.dispatch(),
         finalize_objects_kernel.dispatch(),
         finalize_move_kernel.dispatch(),
-        // Reset lock, buffers.
-        copy_rejection_kernel.dispatch(),
-        compute_rejection_kernel.dispatch(),
-        // TODO: Move to end, currently here for debugging.
+    )
+        .chain();
+    let pre_predict = (
         physics
             .lock_buffer
             .copy_from_vec(vec![0; physics.lock_buffer.len()]),
         collisions.next.write_host(0),
+    );
+    let predict_next = (
         predict_kernel.dispatch(),
         move_kernel.dispatch(),
         // TODO: This locks it. Need dispatch indirect.
         collisions.next.read_to(&collisions.domain.len),
+    )
+        .chain();
+    (
+        collide,
+        pre_move,
+        finish_move,
+        copy_rejection_kernel.dispatch(),
+        compute_rejection_kernel.dispatch(),
+        pre_predict,
+        predict_next,
     )
         .chain()
 }
@@ -557,7 +649,9 @@ impl Plugin for PhysicsPlugin {
                     init_finalize_objects_kernel,
                     init_finalize_move_kernel,
                     init_move_kernel,
+                    init_setup_collide_kernel,
                     init_collide_kernel,
+                    init_apply_impulses_kernel,
                     init_compute_rejection_kernel,
                     init_copy_rejection_kernel,
                 ),

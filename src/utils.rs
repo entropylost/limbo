@@ -3,6 +3,7 @@ use std::ops::DerefMut;
 use bevy::ecs::schedule::ScheduleLabel;
 use bevy_sefirot::MirrorGraph;
 use nalgebra::ComplexField;
+use sefirot::tracked_nc;
 
 use crate::prelude::*;
 
@@ -100,3 +101,29 @@ uint3 pcg3d(uint3 v) {
     return v;
 }
 */
+
+pub trait Cross<T> {
+    type Output;
+    fn cross(&self, other: T) -> Self::Output;
+}
+impl Cross<Expr<Vec2<f32>>> for Expr<Vec2<f32>> {
+    type Output = Expr<f32>;
+    #[tracked_nc]
+    fn cross(&self, other: Expr<Vec2<f32>>) -> Self::Output {
+        self.x * other.y - self.y * other.x
+    }
+}
+impl Cross<Expr<f32>> for Expr<Vec2<f32>> {
+    type Output = Expr<Vec2<f32>>;
+    #[tracked_nc]
+    fn cross(&self, other: Expr<f32>) -> Self::Output {
+        Vec2::expr(self.y * other, -self.x * other)
+    }
+}
+impl Cross<Expr<Vec2<f32>>> for Expr<f32> {
+    type Output = Expr<Vec2<f32>>;
+    #[tracked_nc]
+    fn cross(&self, other: Expr<Vec2<f32>>) -> Self::Output {
+        Vec2::expr(-*self * other.y, self * other.x)
+    }
+}
