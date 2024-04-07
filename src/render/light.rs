@@ -21,7 +21,7 @@ pub struct LightFields {
     _fields: FieldSet,
 }
 
-fn setup_fields(mut commands: Commands, device: Res<Device>, constants: Res<LightConstants>) {
+fn setup_light(mut commands: Commands, device: Res<Device>, constants: Res<LightConstants>) {
     let skylight = constants
         .skylight
         .iter()
@@ -72,6 +72,7 @@ fn wall_kernel(
     })
 }
 
+// TODO: Consider using even stepping and hardware filtering instead of DDA.
 #[kernel]
 fn trace_kernel(
     device: Res<Device>,
@@ -273,7 +274,7 @@ impl Plugin for LightPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LightConstants>()
             .init_resource::<LightParameters>()
-            .add_systems(Startup, setup_fields)
+            .add_systems(Startup, setup_light)
             .add_systems(
                 InitKernel,
                 (init_wall_kernel, init_trace_kernel, init_accumulate_kernel),

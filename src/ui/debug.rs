@@ -6,6 +6,7 @@ use crate::prelude::*;
 use crate::render::debug::DebugParameters;
 use crate::render::light::LightParameters;
 use crate::world::flow::FlowFields;
+use crate::world::fluid::FluidFields;
 use crate::world::impeller::ImpellerFields;
 use crate::world::physics::{CollisionFields, PhysicsFields, NULL_OBJECT};
 use crate::world::tiled_test::TiledTestFields;
@@ -79,6 +80,10 @@ impl FromWorld for DebugUiState {
             let active = fields.create_bind("tiled-test-active", tiled_test_fields.domain.active());
             debug_fields.push(("Active Tiles", active.id()))
         }
+        if let Some(fluid) = world.get_resource::<FluidFields>() {
+            debug_fields.push(("Fluid Mass", fluid.mass.id()));
+            debug_fields.push(("Fluid Walls", fluid.solid.id()));
+        }
         Self {
             activate_debug_render: false,
             current_index: 0,
@@ -106,7 +111,7 @@ fn activate_renders(
 fn render_ui(
     mut state: ResMut<DebugUiState>,
     mut ctx: UiContext,
-    collisions: Res<CollisionFields>,
+    collisions: Option<Res<CollisionFields>>,
 ) {
     let DebugUiState {
         activate_debug_render,
@@ -121,8 +126,10 @@ fn render_ui(
         for (i, (name, _)) in debug_fields.iter().enumerate() {
             ui.radio_value(current_index, i, name);
         }
-        ui.separator();
-        ui.label(format!("Collisions: {:?}", collisions.domain.len.lock()));
+        if let Some(collisions) = collisions {
+            ui.separator();
+            ui.label(format!("Collisions: {:?}", collisions.domain.len.lock()));
+        }
     });
 }
 

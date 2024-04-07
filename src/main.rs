@@ -4,6 +4,7 @@ use bevy::window::WindowResolution;
 use bevy_sefirot::display::DisplayPlugin;
 use bevy_sefirot::prelude::*;
 use nalgebra::Vector2;
+use world::fluid::FluidPlugin;
 
 use crate::render::agx::AgXTonemapPlugin;
 use crate::render::debug::DebugPlugin;
@@ -63,12 +64,11 @@ fn main() {
         })
         .add_plugins(DisplayPlugin::default())
         .add_plugins(WorldPlugin)
-        .add_plugins(PhysicsPlugin)
+        .add_plugins(FluidPlugin)
         .add_plugins(UiPlugin)
         .add_plugins(RenderPlugin::default())
         .add_plugins(AgXTonemapPlugin)
         .add_plugins(DitherPlugin)
-        .add_plugins(LightPlugin)
         .add_plugins(DebugPlugin)
         .add_plugins(DebugUiPlugin)
         .add_systems(Startup, setup_init_data)
@@ -94,19 +94,19 @@ fn setup_init_data(mut commands: Commands) {
         }
     }
 
-    for x in 0..16 {
-        for y in 0..16 {
-            cells[x as usize + 66][y as usize + 5] = 2;
-        }
-    }
+    // for x in 0..16 {
+    //     for y in 0..16 {
+    //         cells[x as usize + 66][y as usize + 5] = 2;
+    //     }
+    // }
     commands.insert_resource(InitData {
         cells,
-        object_velocities: vec![
+        object_velocity: vec![
             Vector2::new(0.0, 0.0),
-            Vector2::new(0.0, -0.7),
+            Vector2::new(0.0, 0.0),
             Vector2::new(0.0, 0.7),
         ],
-        object_angvels: vec![0.0, 0.0, 0.0],
+        object_angvel: vec![0.0, 0.0, 0.0],
     });
 }
 

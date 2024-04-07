@@ -75,7 +75,7 @@ pub struct RenderFields {
     _fields: FieldSet,
 }
 
-fn setup_fields(
+fn setup_render(
     mut commands: Commands,
     device: Res<Device>,
     world: Res<World>,
@@ -185,7 +185,7 @@ impl Plugin for RenderPlugin {
                 (RenderPhase::Light, RenderPhase::Postprocess).chain(),
             )
             .add_systems(Startup, init_resource::<RenderGraph>)
-            .add_systems(Startup, setup_fields.after(setup_display))
+            .add_systems(Startup, setup_render.after(setup_display))
             .add_systems(
                 PostStartup,
                 build_upscale_postprocess_kernel.after(init_kernel_system),

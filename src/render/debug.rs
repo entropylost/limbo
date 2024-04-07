@@ -53,7 +53,7 @@ impl FromWorld for DebugParameters {
     fn from_world(world: &mut BevyWorld) -> Self {
         let empty_field = FieldId::unique();
         Self {
-            running: false,
+            running: true,
             active_field: empty_field,
             current_field: empty_field,
             kernel: Kernel::null(world.resource::<Device>()),

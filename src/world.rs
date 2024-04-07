@@ -7,6 +7,7 @@ use crate::prelude::*;
 
 pub mod direction;
 pub mod flow;
+pub mod fluid;
 pub mod impeller;
 pub mod physics;
 pub mod tiled_test;

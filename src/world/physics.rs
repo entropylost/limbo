@@ -29,14 +29,15 @@ pub struct Collision {
     normal_mass: f32,
     constraint_factor: u32,
     total_impulse: Vec2<f32>,
-    // Used to compute the b_position, if normal = 0.
+    // Used to compute the b_position, if interpenetrating.
     predicted_collision: Vec2<i32>,
     interpenetrating: bool,
+    // penetration: f32,
 }
 
 pub struct ObjectBuffers {
-    mass: Buffer<u32>,
-    moment: Buffer<u32>,
+    inv_mass: Buffer<f32>,
+    inv_moment: Buffer<f32>,
     position: Buffer<Vec2<f32>>,
     angle: Buffer<f32>,
     velocity: Buffer<Vec2<f32>>,
@@ -48,8 +49,8 @@ pub struct ObjectFields {
     // TODO: Change for resizing.
     pub domain: StaticDomain<1>,
     // Also change these to use ObjectId instead.
-    pub mass: AField<u32, Object>,
-    pub moment: AField<u32, Object>,
+    pub inv_mass: AField<f32, Object>,
+    pub inv_moment: AField<f32, Object>,
     // TODO: Need to be able to adjust these.
     // Replace with center of mass upon object breaking.
     pub position: VField<Vec2<f32>, Object>,
@@ -72,8 +73,8 @@ pub struct ObjectFields {
 #[derive(Resource)]
 pub struct InitData {
     pub cells: [[u32; 256]; 256],
-    pub object_velocities: Vec<Vector2<f32>>,
-    pub object_angvels: Vec<f32>,
+    pub object_velocity: Vec<Vector2<f32>>,
+    pub object_angvel: Vec<f32>,
 }
 
 pub const NULL_OBJECT: u32 = u32::MAX;
@@ -105,8 +106,8 @@ fn setup_objects(mut commands: Commands, device: Res<Device>) {
     let domain = StaticDomain::<1>::new(NUM_OBJECTS as u32);
 
     let buffers = ObjectBuffers {
-        mass: device.create_buffer(NUM_OBJECTS),
-        moment: device.create_buffer(NUM_OBJECTS),
+        inv_mass: device.create_buffer(NUM_OBJECTS),
+        inv_moment: device.create_buffer(NUM_OBJECTS),
         position: device.create_buffer(NUM_OBJECTS),
         angle: device.create_buffer(NUM_OBJECTS),
         velocity: device.create_buffer(NUM_OBJECTS),
@@ -115,8 +116,14 @@ fn setup_objects(mut commands: Commands, device: Res<Device>) {
 
     let mut fields = FieldSet::new();
 
-    let mass = fields.create_bind("object-mass", domain.map_buffer(buffers.mass.view(..)));
-    let moment = fields.create_bind("object-moment", domain.map_buffer(buffers.moment.view(..)));
+    let inv_mass = fields.create_bind(
+        "object-inv-mass",
+        domain.map_buffer(buffers.inv_mass.view(..)),
+    );
+    let inv_moment = fields.create_bind(
+        "object-inv-moment",
+        domain.map_buffer(buffers.inv_moment.view(..)),
+    );
 
     let position = fields.create_bind(
         "object-position",
@@ -146,8 +153,8 @@ fn setup_objects(mut commands: Commands, device: Res<Device>) {
 
     let objects = ObjectFields {
         domain,
-        mass,
-        moment,
+        inv_mass,
+        inv_moment,
         position,
         predicted_position,
         angle,
@@ -283,11 +290,13 @@ fn predict_kernel(device: Res<Device>, objects: Res<ObjectFields>) -> Kernel<fn(
 fn finalize_objects_kernel(device: Res<Device>, objects: Res<ObjectFields>) -> Kernel<fn()> {
     Kernel::build(&device, &objects.domain, &|obj| {
         *objects.velocity.var(&obj) = objects.predicted_velocity.expr(&obj)
-            + objects.impulse.expr(&obj) / objects.mass.expr(&obj).cast_f32() * RESTITUTION;
+            + objects.impulse.expr(&obj) * objects.inv_mass.expr(&obj) * RESTITUTION;
         *objects.angvel.var(&obj) = objects.predicted_angvel.expr(&obj)
-            + objects.angular_impulse.expr(&obj) / objects.moment.expr(&obj).cast_f32()
-                * RESTITUTION;
-
+            + objects.angular_impulse.expr(&obj) * objects.inv_moment.expr(&obj) * RESTITUTION;
+        if *obj != 0 {
+            // Not the ground.
+            *objects.velocity.var(&obj) += Vec2::expr(0.0, -0.01);
+        }
         // TODO: These would make more sense to do after summing velocities.
         *objects.predicted_velocity.var(&obj) = objects.velocity.expr(&obj);
         *objects.predicted_angvel.var(&obj) = objects.angvel.expr(&obj);
@@ -365,13 +374,15 @@ fn compute_edge_collisions_kernel(
         if *obj == NULL_OBJECT {
             return;
         }
-        let obj_pos = objects.position.expr(&obj).round();
+        let obj_pos = objects.position.expr(&obj);
         // TODO: Make this not oob. Use dual grid?
         for dir in [GridDirection::Up, GridDirection::Right] {
             let neighbor = world.in_dir(&cell, dir);
             let other_obj = cell.at(physics.object.expr(&neighbor));
-            let other_obj_pos = objects.position.expr(&other_obj).round();
+            let other_obj_pos = objects.position.expr(&other_obj);
             if *other_obj != NULL_OBJECT && *other_obj != *obj {
+                // let penetration =
+
                 let index = collisions.next.atomic().fetch_add(1);
                 objects.num_constraints.atomic(&obj).fetch_add(1);
                 objects.num_constraints.atomic(&other_obj).fetch_add(1);
@@ -387,6 +398,7 @@ fn compute_edge_collisions_kernel(
                         total_impulse: Vec2::splat_expr(0.0),
                         predicted_collision: Vec2::splat_expr(0),
                         interpenetrating: false.expr(),
+                        // penetration,
                     });
             }
         }
@@ -478,17 +490,15 @@ fn setup_collide_kernel(
                 objects.predicted_angle.expr(&b_obj) - objects.angle.expr(&b_obj),
             ))
             .normalize();
-            *a_offset = pos.cast_f32() - objects.predicted_position.expr(&a_obj).round();
-            *b_offset = pos.cast_f32() - objects.predicted_position.expr(&b_obj).round();
+            *a_offset = pos.cast_f32() - objects.predicted_position.expr(&a_obj);
+            *b_offset = pos.cast_f32() - objects.predicted_position.expr(&b_obj);
         }
 
         // TODO: Cache inverse values as well..
-        let inv_normal_mass = 1.0 / objects.mass.expr(&a_obj).cast_f32()
-            + 1.0 / objects.mass.expr(&b_obj).cast_f32()
-            + 1.0 / objects.moment.expr(&a_obj).cast_f32()
-                * (a_offset.norm() - a_offset.dot(normal).sqr())
-            + 1.0 / objects.moment.expr(&b_obj).cast_f32()
-                * (b_offset.norm() - b_offset.dot(normal).sqr());
+        let inv_normal_mass = objects.inv_mass.expr(&a_obj)
+            + objects.inv_mass.expr(&b_obj)
+            + objects.inv_moment.expr(&a_obj) * (a_offset.norm() - a_offset.dot(normal).sqr())
+            + objects.inv_moment.expr(&b_obj) * (b_offset.norm() - b_offset.dot(normal).sqr());
 
         // TODO: Deal with nans.
         *collision.normal_mass = 1.0 / inv_normal_mass;
@@ -502,10 +512,10 @@ fn setup_collide_kernel(
 #[kernel]
 fn apply_impulses_kernel(device: Res<Device>, objects: Res<ObjectFields>) -> Kernel<fn()> {
     Kernel::build(&device, &objects.domain, &|obj| {
-        *objects.predicted_velocity.var(&obj) = objects.velocity.expr(&obj)
-            + objects.impulse.expr(&obj) / objects.mass.expr(&obj).cast_f32();
+        *objects.predicted_velocity.var(&obj) =
+            objects.velocity.expr(&obj) + objects.impulse.expr(&obj) * objects.inv_mass.expr(&obj);
         *objects.predicted_angvel.var(&obj) = objects.angvel.expr(&obj)
-            + objects.angular_impulse.expr(&obj) / objects.moment.expr(&obj).cast_f32();
+            + objects.angular_impulse.expr(&obj) * objects.inv_moment.expr(&obj);
     })
 }
 
@@ -638,59 +648,71 @@ fn init_physics(
             init_data.cells[x as usize][y as usize]
         })
         .collect::<Vec<_>>();
-    let mut object_masses = vec![0_u32; NUM_OBJECTS];
-    let mut object_centers = vec![Vector2::repeat(0_u32); NUM_OBJECTS];
+    let mut object_mass = [0_u32; NUM_OBJECTS];
+    let mut object_center = vec![Vector2::repeat(0_u32); NUM_OBJECTS];
     for x in 0..256 {
         for y in 0..256 {
             let obj = init_data.cells[x][y];
             if obj == NULL_OBJECT {
                 continue;
             }
-            object_masses[obj as usize] += 1;
-            object_centers[obj as usize] += Vector2::new(x as u32, y as u32);
+            object_mass[obj as usize] += 1;
+            object_center[obj as usize] += Vector2::new(x as u32, y as u32);
         }
     }
+    let mut object_inv_mass = object_mass
+        .iter()
+        .map(|&mass| 1.0 / mass as f32)
+        .collect::<Vec<_>>();
+    object_inv_mass[0] = 0.0;
 
-    let object_centers = object_centers
+    let object_center = object_center
         .into_iter()
         .enumerate()
         .map(|(i, sum)| {
-            sum.cast::<i32>() / (object_masses[i] as i32).max(1) + Vector2::from(world.start())
+            sum.cast::<f32>() / (object_mass[i] as f32).max(1.0)
+                + Vector2::from(world.start()).cast::<f32>()
         })
         .collect::<Vec<_>>();
-    let object_positions = object_centers
+    let object_position = object_center
         .iter()
-        .map(|c| Vec2::from(c.cast::<f32>()))
+        .map(|c| Vec2::from(*c))
         .collect::<Vec<_>>();
 
-    let object_velocities = init_data
-        .object_velocities
+    let object_velocity = init_data
+        .object_velocity
         .iter()
         .map(|v| Vec2::from(*v))
         .chain(repeat(Vec2::splat(0.0)))
         .take(NUM_OBJECTS)
         .collect::<Vec<_>>();
-    let mut object_moments = vec![0_u32; NUM_OBJECTS];
+    let mut object_moment = [0.0; NUM_OBJECTS];
     for x in 0..256 {
         for y in 0..256 {
             let obj = init_data.cells[x][y];
             if obj == NULL_OBJECT {
                 continue;
             }
-            let delta = Vector2::new(x as i32, y as i32) - object_centers[obj as usize];
-            let mass = 1;
-            let moment = mass * (delta.x * delta.x + delta.y * delta.y) as u32;
-            object_moments[obj as usize] += moment;
+            let delta = Vector2::new(x, y).cast::<f32>() - object_center[obj as usize];
+            let mass = 1.0;
+            let moment = mass * (delta.x * delta.x + delta.y * delta.y);
+            object_moment[obj as usize] += moment;
         }
     }
-    let mut object_angvels = init_data.object_angvels.clone();
+    let mut object_inv_moment = object_moment
+        .iter()
+        .map(|&moment| 1.0 / moment)
+        .collect::<Vec<_>>();
+    object_inv_moment[0] = 0.0;
+
+    let mut object_angvels = init_data.object_angvel.clone();
     object_angvels.resize(NUM_OBJECTS, 0.0);
     (
-        objects.buffers.mass.copy_from_vec(object_masses),
-        objects.buffers.moment.copy_from_vec(object_moments),
-        objects.buffers.position.copy_from_vec(object_positions),
+        objects.buffers.inv_mass.copy_from_vec(object_inv_mass),
+        objects.buffers.inv_moment.copy_from_vec(object_inv_moment),
+        objects.buffers.position.copy_from_vec(object_position),
         objects.buffers.angle.copy_from_vec(vec![0.0; NUM_OBJECTS]),
-        objects.buffers.velocity.copy_from_vec(object_velocities),
+        objects.buffers.velocity.copy_from_vec(object_velocity),
         objects.buffers.angvel.copy_from_vec(object_angvels),
         physics.object_buffer.copy_from_vec(cells),
     )
