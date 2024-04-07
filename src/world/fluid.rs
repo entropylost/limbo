@@ -54,8 +54,11 @@ fn copy_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) 
         for dir in [GridDirection::Right, GridDirection::Up] {
             let edge = world.dual.in_dir(&cell, dir);
             let opposite = world.in_dir(&cell, dir);
-            let weight = fluid.next_mass.expr(&cell) + fluid.next_mass.expr(&opposite) + 0.0001;
-            *fluid.velocity.var(&edge) = fluid.next_momentum.expr(&edge) / weight;
+            let weight = max(
+                fluid.next_mass.expr(&cell) + fluid.next_mass.expr(&opposite),
+                0.0001,
+            );
+            *fluid.velocity.var(&edge) = fluid.next_momentum.expr(&edge); // / weight;
         }
     })
 }
@@ -93,38 +96,55 @@ fn advect_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>
         let end = max(a, b);
         // TODO: Can break
         let density = fluid.mass.expr(&cell) * 1.0 / (end - start).reduce_prod();
-        // for i in start.x.floor().cast_i32()..end.x.floor().cast_i32() {
-        //     for j in start.y.floor().cast_i32()..end.y.floor().cast_i32() {
-        let offset = Vec2::expr(0, 0_i32);
-        let dst = cell.at(offset + *cell);
-        let offset = offset.cast_f32();
-        // if !world.contains(&dst) {
-        //     continue;
-        // }
-        let intersection = min(end, offset + 1.0) - max(start, offset);
-        let weight = density * intersection.reduce_prod();
-        fluid.next_mass.atomic(&dst).fetch_add(weight);
-        let weight = weight + 0.0001;
-        let dst_x_start_inv = (offset.x - a.x) / (b.x - a.x);
-        let dst_y_start_inv = (offset.y - a.y) / (b.y - a.y);
-        let dst_x_end_inv = (offset.x + 1.0 - a.x) / (b.x - a.x);
-        let dst_y_end_inv = (offset.y + 1.0 - a.y) / (b.y - a.y);
-        fluid
-            .next_momentum
-            .atomic(&world.dual.in_dir(&dst, GridDirection::Left))
-            .fetch_add(dst_x_start_inv.clamp(0.0, 1.0).lerp(vel_start_x, vel_end_x) * weight);
-        fluid
-            .next_momentum
-            .atomic(&world.dual.in_dir(&dst, GridDirection::Right))
-            .fetch_add(dst_x_end_inv.clamp(0.0, 1.0).lerp(vel_start_x, vel_end_x) * weight);
-        fluid
-            .next_momentum
-            .atomic(&world.dual.in_dir(&dst, GridDirection::Down))
-            .fetch_add(dst_y_start_inv.clamp(0.0, 1.0).lerp(vel_start_y, vel_end_y) * weight);
-        fluid
-            .next_momentum
-            .atomic(&world.dual.in_dir(&dst, GridDirection::Up))
-            .fetch_add(dst_y_end_inv.clamp(0.0, 1.0).lerp(vel_start_y, vel_end_y) * weight);
+        if density < 0.0001 {
+            return;
+        }
+        for i in start.x.floor().cast_i32()..=end.x.floor().cast_i32() {
+            for j in start.y.floor().cast_i32()..=end.y.floor().cast_i32() {
+                let offset = Vec2::expr(i, j);
+                let dst = cell.at(offset + *cell);
+                let offset = offset.cast_f32();
+                if !world.contains(&dst) {
+                    continue;
+                }
+                let intersection = min(end, offset + 1.0) - max(start, offset);
+                let weight = density * intersection.reduce_prod();
+                fluid.next_mass.atomic(&dst).fetch_add(weight);
+                let dst_x_start_inv = (offset.x - a.x) / (b.x - a.x);
+                let dst_y_start_inv = (offset.y - a.y) / (b.y - a.y);
+                let dst_x_end_inv = (offset.x + 1.0 - a.x) / (b.x - a.x);
+                let dst_y_end_inv = (offset.y + 1.0 - a.y) / (b.y - a.y);
+
+                fn lerp(t: Expr<f32>, a: Expr<f32>, b: Expr<f32>) -> Expr<f32> {
+                    a * (1.0 - t) + b * t
+                }
+
+                fluid
+                    .next_momentum
+                    .atomic(&world.dual.in_dir(&dst, GridDirection::Left))
+                    .fetch_add(
+                        lerp(dst_x_start_inv.clamp(0.0, 1.0), vel_start_x, vel_end_x) * weight,
+                    );
+                fluid
+                    .next_momentum
+                    .atomic(&world.dual.in_dir(&dst, GridDirection::Right))
+                    .fetch_add(
+                        lerp(dst_x_end_inv.clamp(0.0, 1.0), vel_start_x, vel_end_x) * weight,
+                    );
+                // fluid
+                //     .next_momentum
+                //     .atomic(&world.dual.in_dir(&dst, GridDirection::Down))
+                //     .fetch_add(
+                //         lerp(dst_y_start_inv.clamp(0.0, 1.0), vel_start_y, vel_end_y) * weight,
+                //     );
+                // fluid
+                //     .next_momentum
+                //     .atomic(&world.dual.in_dir(&dst, GridDirection::Up))
+                //     .fetch_add(
+                //         lerp(dst_y_end_inv.clamp(0.0, 1.0), vel_start_y, vel_end_y) * weight,
+                //     );
+            }
+        }
     })
 }
 
@@ -134,6 +154,9 @@ fn load_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) 
         if (*cell - 64).cast_f32().norm() < 32.0 {
             *fluid.mass.var(&cell) = 1.0;
         }
+        *fluid
+            .velocity
+            .var(&world.dual.in_dir(&cell, GridDirection::Right)) = 1.0;
     })
 }
 
@@ -142,7 +165,7 @@ fn update_fluids() -> impl AsNodes {
         advect_kernel.dispatch(),
         copy_kernel.dispatch(),
         clear_kernel.dispatch(),
-        divergence_kernel.dispatch(),
+        // divergence_kernel.dispatch(),
     )
         .chain()
 }
