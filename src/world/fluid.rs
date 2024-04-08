@@ -5,7 +5,6 @@ pub struct FluidFields {
     pub mass: VField<f32, Cell>,
     pub next_mass: AField<f32, Cell>,
     pub velocity: VField<f32, Edge>,
-    pub dv: VField<f32, Edge>,
     pub next_momentum: AField<f32, Edge>,
     pub solid: VField<bool, Cell>,
     _fields: FieldSet,
@@ -17,7 +16,6 @@ fn setup_fluids(mut commands: Commands, device: Res<Device>, world: Res<World>) 
         mass: fields.create_bind("fluid-mass", world.create_texture(&device)),
         next_mass: fields.create_bind("fluid-next-mass", world.create_buffer(&device)),
         velocity: fields.create_bind("fluid-velocity", world.dual.create_texture(&device)),
-        dv: fields.create_bind("fluid-dv", world.dual.create_texture(&device)),
         next_momentum: fields.create_bind("fluid-next-momentum", world.dual.create_buffer(&device)),
         solid: *fields.create_bind("fluid-solid", world.create_buffer(&device)),
         _fields: fields,
@@ -50,23 +48,13 @@ fn divergence_kernel(
         }
         *solids = max(solids, 1);
         let pressure = 0.1 * divergence / solids.cast_f32()
-            - 0.1 * max(fluid.mass.expr(&cell) - 1.0, 0.0) * 4.0 / solids.cast_f32();
+            - 0.1 * max(fluid.mass.expr(&cell) - 1.0, 0.0) * 4.0 / solids.cast_f32()
+            - 0.002 * max(1.0 - fluid.mass.expr(&cell), 0.0).sqr();
         for dir in GridDirection::iter_all() {
             let edge = world.dual.in_dir(&cell, dir);
             if !fluid.solid.expr(&world.in_dir(&cell, dir)) {
                 *fluid.velocity.var(&edge) += -pressure * dir.signf();
             }
-        }
-    })
-}
-
-#[kernel]
-fn apply_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) -> Kernel<fn()> {
-    Kernel::build(&device, &**world, &|cell| {
-        for dir in [GridDirection::Right, GridDirection::Up] {
-            let edge = world.dual.in_dir(&cell, dir);
-            *fluid.velocity.var(&edge) += fluid.dv.expr(&edge);
-            *fluid.dv.var(&edge) = 0.0;
         }
     })
 }
@@ -83,7 +71,7 @@ fn copy_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) 
                 0.0001,
             );
             if dir == GridDirection::Up {
-                *fluid.velocity.var(&edge) = fluid.next_momentum.expr(&edge) / weight - 0.005;
+                *fluid.velocity.var(&edge) = fluid.next_momentum.expr(&edge) / weight - 0.001;
             } else {
                 *fluid.velocity.var(&edge) = fluid.next_momentum.expr(&edge) / weight;
             }
@@ -176,26 +164,30 @@ fn advect_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>
 #[kernel(run)]
 fn load_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|cell| {
-        if cell.y > 24 && cell.x > 44 && cell.x < 100 && cell.y < 100 {
+        if cell.y > 24 && cell.x > 44 && cell.x < 100 && cell.y < 140 {
             *fluid.mass.var(&cell) = 1.0;
         }
-        if cell.y < 20 || cell.x < 40 || cell.x > 256 - 40 {
+        if cell.y < 20 || cell.x < 20 {
             *fluid.solid.var(&cell) = true;
-            *fluid.mass.var(&cell) = 1.0;
         }
     })
 }
 
 fn update_fluids() -> impl AsNodes {
-    (
-        advect_kernel.dispatch(),
-        copy_kernel.dispatch(),
-        clear_kernel.dispatch(),
-        divergence_kernel.dispatch(),
-        divergence_kernel.dispatch(),
-        divergence_kernel.dispatch(),
-        divergence_kernel.dispatch(),
-    )
+    (0..5)
+        .map(|_| {
+            (
+                advect_kernel.dispatch(),
+                copy_kernel.dispatch(),
+                clear_kernel.dispatch(),
+                divergence_kernel.dispatch(),
+                divergence_kernel.dispatch(),
+                divergence_kernel.dispatch(),
+                divergence_kernel.dispatch(),
+            )
+                .chain()
+        })
+        .collect::<Vec<_>>()
         .chain()
 }
 
@@ -211,7 +203,6 @@ impl Plugin for FluidPlugin {
                     init_copy_kernel,
                     init_divergence_kernel,
                     init_load_kernel,
-                    init_apply_kernel,
                 ),
             )
             .add_systems(WorldInit, add_init(load))
