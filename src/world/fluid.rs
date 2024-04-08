@@ -5,9 +5,11 @@ pub struct FluidFields {
     pub mass: VField<f32, Cell>,
     pub next_mass: AField<f32, Cell>,
     pub velocity: VField<f32, Edge>,
-    pub dv: VField<f32, Edge>,
     pub next_momentum: AField<f32, Edge>,
     pub solid: VField<bool, Cell>,
+    pub ty: VField<u32, Cell>,
+    pub next_ty: AField<u32, Cell>,
+    pub lock: VField<bool, Cell>,
     _fields: FieldSet,
 }
 
@@ -17,9 +19,11 @@ fn setup_fluids(mut commands: Commands, device: Res<Device>, world: Res<World>) 
         mass: fields.create_bind("fluid-mass", world.create_texture(&device)),
         next_mass: fields.create_bind("fluid-next-mass", world.create_buffer(&device)),
         velocity: fields.create_bind("fluid-velocity", world.dual.create_texture(&device)),
-        dv: fields.create_bind("fluid-dv", world.dual.create_texture(&device)),
         next_momentum: fields.create_bind("fluid-next-momentum", world.dual.create_buffer(&device)),
         solid: *fields.create_bind("fluid-solid", world.create_buffer(&device)),
+        ty: *fields.create_bind("fluid-ty", world.create_buffer(&device)),
+        next_ty: fields.create_bind("fluid-next-ty", world.create_buffer(&device)),
+        lock: *fields.create_bind("fluid-lock", world.create_buffer(&device)),
         _fields: fields,
     };
     commands.insert_resource(fluid);
@@ -61,20 +65,10 @@ fn divergence_kernel(
 }
 
 #[kernel]
-fn apply_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) -> Kernel<fn()> {
-    Kernel::build(&device, &**world, &|cell| {
-        for dir in [GridDirection::Right, GridDirection::Up] {
-            let edge = world.dual.in_dir(&cell, dir);
-            *fluid.velocity.var(&edge) += fluid.dv.expr(&edge);
-            *fluid.dv.var(&edge) = 0.0;
-        }
-    })
-}
-
-#[kernel]
 fn copy_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|cell| {
         *fluid.mass.var(&cell) = fluid.next_mass.expr(&cell);
+        *fluid.ty.var(&cell) = fluid.next_ty.expr(&cell);
         for dir in [GridDirection::Right, GridDirection::Up] {
             let edge = world.dual.in_dir(&cell, dir);
             let opposite = world.in_dir(&cell, dir);
@@ -83,7 +77,8 @@ fn copy_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) 
                 0.0001,
             );
             if dir == GridDirection::Up {
-                *fluid.velocity.var(&edge) = fluid.next_momentum.expr(&edge) / weight - 0.005;
+                *fluid.velocity.var(&edge) =
+                    fluid.next_momentum.expr(&edge) / weight - 0.005_f32 / 40.0;
             } else {
                 *fluid.velocity.var(&edge) = fluid.next_momentum.expr(&edge) / weight;
             }
@@ -95,9 +90,52 @@ fn copy_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) 
 fn clear_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|cell| {
         *fluid.next_mass.var(&cell) = 0.0;
+        *fluid.next_ty.var(&cell) = 0;
+        *fluid.lock.var(&cell) = false;
         for dir in [GridDirection::Right, GridDirection::Up] {
             let edge = world.dual.in_dir(&cell, dir);
             *fluid.next_momentum.var(&edge) = 0.0;
+        }
+    })
+}
+
+#[kernel]
+fn lock_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) -> Kernel<fn()> {
+    Kernel::build(&device, &**world, &|cell| {
+        let vel_start_x = fluid
+            .velocity
+            .expr(&world.dual.in_dir(&cell, GridDirection::Left));
+        let vel_end_x = fluid
+            .velocity
+            .expr(&world.dual.in_dir(&cell, GridDirection::Right));
+        let vel_start_y = fluid
+            .velocity
+            .expr(&world.dual.in_dir(&cell, GridDirection::Down));
+        let vel_end_y = fluid
+            .velocity
+            .expr(&world.dual.in_dir(&cell, GridDirection::Up));
+
+        let a = Vec2::expr(vel_start_x, vel_start_y);
+        let b = Vec2::expr(vel_end_x, vel_end_y) + 1.0;
+        let start = min(a, b);
+        let end = max(a, b);
+        let density = fluid.mass.expr(&cell) * 1.0 / max((end - start).reduce_prod(), 0.00001);
+        if density < 0.0001 {
+            return;
+        }
+        let ty = fluid.ty.expr(&cell);
+        for i in start.x.floor().cast_i32()..end.x.ceil().cast_i32() {
+            for j in start.y.floor().cast_i32()..end.y.ceil().cast_i32() {
+                let offset = Vec2::expr(i, j);
+                let dst = cell.at(offset + *cell);
+                if !world.contains(&dst) {
+                    continue;
+                }
+                let x = fluid.next_ty.atomic(&dst).compare_exchange(0, ty);
+                if x != 0 && x != ty {
+                    *fluid.lock.var(&dst) = true;
+                }
+            }
         }
     })
 }
@@ -122,17 +160,37 @@ fn advect_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>
         let b = Vec2::expr(vel_end_x, vel_end_y) + 1.0;
         let start = min(a, b);
         let end = max(a, b);
-        // TODO: Can break
         let density = fluid.mass.expr(&cell) * 1.0 / max((end - start).reduce_prod(), 0.00001);
         if density < 0.0001 {
             return;
         }
-        for i in start.x.floor().cast_i32()..=end.x.floor().cast_i32() {
-            for j in start.y.floor().cast_i32()..=end.y.floor().cast_i32() {
+        let overflow = 0.0_f32.var();
+        for i in start.x.floor().cast_i32()..end.x.ceil().cast_i32() {
+            for j in start.y.floor().cast_i32()..end.y.ceil().cast_i32() {
                 let offset = Vec2::expr(i, j);
                 let dst = cell.at(offset + *cell);
                 let offset = offset.cast_f32();
                 if !world.contains(&dst) {
+                    continue;
+                }
+                let intersection = min(end, offset + 1.0) - max(start, offset);
+                if fluid.lock.expr(&dst) {
+                    *overflow += intersection.reduce_prod();
+                }
+            }
+        }
+        let density =
+            fluid.mass.expr(&cell) * 1.0 / max((end - start).reduce_prod() - overflow, 0.00001);
+        for i in start.x.floor().cast_i32()..end.x.ceil().cast_i32() {
+            for j in start.y.floor().cast_i32()..end.y.ceil().cast_i32() {
+                let offset = Vec2::expr(i, j);
+                let dst = cell.at(offset + *cell);
+                let offset = offset.cast_f32();
+                if !world.contains(&dst) {
+                    continue;
+                }
+                let lock = fluid.lock.expr(&dst);
+                if lock {
                     continue;
                 }
                 let intersection = min(end, offset + 1.0) - max(start, offset);
@@ -176,26 +234,38 @@ fn advect_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>
 #[kernel(run)]
 fn load_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|cell| {
-        if cell.y > 24 && cell.x > 44 && cell.x < 100 && cell.y < 100 {
+        if cell.y >= 60 && cell.x >= 40 && cell.x <= 100 && cell.y < 120 {
             *fluid.mass.var(&cell) = 1.0;
+            *fluid.ty.var(&cell) = 1;
+
+            if cell.x < 128 {
+                *fluid.ty.var(&cell) = 1;
+            }
         }
-        if cell.y < 20 || cell.x < 40 || cell.x > 256 - 40 {
+        if cell.y < 60 || cell.x < 40 {
             *fluid.solid.var(&cell) = true;
-            *fluid.mass.var(&cell) = 1.0;
+            // *fluid.mass.var(&cell) = 1.0;
         }
     })
 }
 
 fn update_fluids() -> impl AsNodes {
-    (
-        advect_kernel.dispatch(),
-        copy_kernel.dispatch(),
-        clear_kernel.dispatch(),
-        divergence_kernel.dispatch(),
-        divergence_kernel.dispatch(),
-        divergence_kernel.dispatch(),
-        divergence_kernel.dispatch(),
-    )
+    let iters = 10;
+    (0..iters)
+        .map(|_| {
+            (
+                lock_kernel.dispatch(),
+                advect_kernel.dispatch(),
+                copy_kernel.dispatch(),
+                clear_kernel.dispatch(),
+                divergence_kernel.dispatch(),
+                divergence_kernel.dispatch(),
+                divergence_kernel.dispatch(),
+                divergence_kernel.dispatch(),
+            )
+                .chain()
+        })
+        .collect::<Vec<_>>()
         .chain()
 }
 
@@ -210,8 +280,8 @@ impl Plugin for FluidPlugin {
                     init_clear_kernel,
                     init_copy_kernel,
                     init_divergence_kernel,
+                    init_lock_kernel,
                     init_load_kernel,
-                    init_apply_kernel,
                 ),
             )
             .add_systems(WorldInit, add_init(load))

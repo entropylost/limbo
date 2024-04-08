@@ -92,6 +92,19 @@ impl FromWorld for DebugUiState {
                     }
                 })),
             );
+            let ty = fields.create_bind(
+                "debug-object",
+                fluid.ty.map(track_nc!(|x| {
+                    if x == 0 {
+                        Vec3::splat_expr(0.0_f32)
+                    } else {
+                        let x = x.cast_f32();
+
+                        Vec3::expr(x.cos(), x.sin(), (x * 0.1).sin() + 0.5).normalize()
+                    }
+                })),
+            );
+            debug_fields.push(("Type", ty.id()));
             debug_fields.push(("Overpressure", overpressure.id()));
             debug_fields.push(("Fluid Walls", fluid.solid.id()));
         }
