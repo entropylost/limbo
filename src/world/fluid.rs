@@ -31,7 +31,7 @@ fn setup_fluids(mut commands: Commands, device: Res<Device>, world: Res<World>) 
 fn apply_gravity(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|cell| {
         if fluid.ty.expr(&cell) != 0 {
-            *fluid.velocity.var(&cell) -= Vec2::new(0.0, 0.001);
+            *fluid.velocity.var(&cell) -= Vec2::new(0.0, 0.1);
         }
     })
 }
@@ -143,17 +143,12 @@ fn load_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) 
 }
 
 #[kernel]
-fn cursor_kernel(device: Res<Device>, fluid: Res<FluidFields>) -> Kernel<fn(Vec2<i32>, Vec2<f32>)> {
-    Kernel::build(
-        &device,
-        &StaticDomain::<2>::new(8, 8),
-        &|cell, cpos, vel| {
-            let pos = cpos + cell.cast_i32() - 4;
-            let cell = cell.at(pos);
-            *fluid.ty.var(&cell) = 1;
-            *fluid.velocity.var(&cell) = vel;
-        },
-    )
+fn cursor_kernel(device: Res<Device>, fluid: Res<FluidFields>) -> Kernel<fn(Vec2<i32>)> {
+    Kernel::build(&device, &StaticDomain::<2>::new(8, 8), &|cell, cpos| {
+        let pos = cpos + cell.cast_i32() - 4;
+        let cell = cell.at(pos);
+        *fluid.ty.var(&cell) = 1;
+    })
 }
 
 fn update_fluids(
@@ -162,10 +157,7 @@ fn update_fluids(
     button: Res<ButtonInput<MouseButton>>,
 ) -> impl AsNodes {
     if button.pressed(MouseButton::Left) {
-        cursor_kernel.dispatch_blocking(
-            &Vec2::from(cursor.position.map(|x| x as i32)),
-            &Vec2::from(cursor.velocity / 60.0),
-        );
+        cursor_kernel.dispatch_blocking(&Vec2::from(cursor.position.map(|x| x as i32)));
     }
     *parity ^= true;
     if *parity {
