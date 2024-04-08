@@ -73,7 +73,7 @@ fn main() {
         .add_plugins(DebugUiPlugin)
         .add_systems(Startup, setup_init_data)
         .insert_resource(Camera {
-            position: Vector2::new(64.0, 64.0),
+            position: Vector2::new(128.0, 128.0),
         })
         .add_systems(PreUpdate, (move_camera, update_viewport).chain())
         .run();

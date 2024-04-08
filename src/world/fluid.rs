@@ -34,15 +34,30 @@ fn divergence_kernel(
     fluid: Res<FluidFields>,
 ) -> Kernel<fn()> {
     Kernel::build(&device, &world.checkerboard(), &|cell| {
-        let divergence = 0.0_f32.var();
-        for dir in GridDirection::iter_all() {
-            let edge = world.dual.in_dir(&cell, dir);
-            *divergence += fluid.velocity.expr(&edge) * dir.signf();
+        if fluid.solid.expr(&cell) {
+            for dir in GridDirection::iter_all() {
+                let edge = world.dual.in_dir(&cell, dir);
+                *fluid.velocity.var(&edge) = 0.0;
+            }
+            return;
         }
-        let pressure = divergence / 4.0;
+        let divergence = 0.0_f32.var();
+        let solids = 0_u32.var();
         for dir in GridDirection::iter_all() {
             let edge = world.dual.in_dir(&cell, dir);
-            *fluid.velocity.var(&edge) += -pressure * dir.signf();
+            if !fluid.solid.expr(&world.in_dir(&cell, dir)) {
+                *divergence += fluid.velocity.expr(&edge) * dir.signf();
+                *solids += 1;
+            }
+        }
+        *solids = max(solids, 1);
+        let pressure =
+            divergence / solids.cast_f32() - 0.1 * max(fluid.mass.expr(&cell) - 1.0, 0.0);
+        for dir in GridDirection::iter_all() {
+            let edge = world.dual.in_dir(&cell, dir);
+            if !fluid.solid.expr(&world.in_dir(&cell, dir)) {
+                *fluid.velocity.var(&edge) += -pressure * dir.signf();
+            }
         }
     })
 }
@@ -58,7 +73,11 @@ fn copy_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) 
                 fluid.next_mass.expr(&cell) + fluid.next_mass.expr(&opposite),
                 0.0001,
             );
-            *fluid.velocity.var(&edge) = fluid.next_momentum.expr(&edge); // / weight;
+            if dir == GridDirection::Up {
+                *fluid.velocity.var(&edge) = fluid.next_momentum.expr(&edge) / weight - 0.001;
+            } else {
+                *fluid.velocity.var(&edge) = fluid.next_momentum.expr(&edge) / weight;
+            }
         }
     })
 }
@@ -95,7 +114,7 @@ fn advect_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>
         let start = min(a, b);
         let end = max(a, b);
         // TODO: Can break
-        let density = fluid.mass.expr(&cell) * 1.0 / (end - start).reduce_prod();
+        let density = fluid.mass.expr(&cell) * 1.0 / max((end - start).reduce_prod(), 0.00001);
         if density < 0.0001 {
             return;
         }
@@ -110,14 +129,11 @@ fn advect_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>
                 let intersection = min(end, offset + 1.0) - max(start, offset);
                 let weight = density * intersection.reduce_prod();
                 fluid.next_mass.atomic(&dst).fetch_add(weight);
+                // TODO: These break.
                 let dst_x_start_inv = (offset.x - a.x) / (b.x - a.x);
                 let dst_y_start_inv = (offset.y - a.y) / (b.y - a.y);
                 let dst_x_end_inv = (offset.x + 1.0 - a.x) / (b.x - a.x);
                 let dst_y_end_inv = (offset.y + 1.0 - a.y) / (b.y - a.y);
-
-                fn lerp(t: Expr<f32>, a: Expr<f32>, b: Expr<f32>) -> Expr<f32> {
-                    a * (1.0 - t) + b * t
-                }
 
                 fluid
                     .next_momentum
@@ -131,18 +147,18 @@ fn advect_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>
                     .fetch_add(
                         lerp(dst_x_end_inv.clamp(0.0, 1.0), vel_start_x, vel_end_x) * weight,
                     );
-                // fluid
-                //     .next_momentum
-                //     .atomic(&world.dual.in_dir(&dst, GridDirection::Down))
-                //     .fetch_add(
-                //         lerp(dst_y_start_inv.clamp(0.0, 1.0), vel_start_y, vel_end_y) * weight,
-                //     );
-                // fluid
-                //     .next_momentum
-                //     .atomic(&world.dual.in_dir(&dst, GridDirection::Up))
-                //     .fetch_add(
-                //         lerp(dst_y_end_inv.clamp(0.0, 1.0), vel_start_y, vel_end_y) * weight,
-                //     );
+                fluid
+                    .next_momentum
+                    .atomic(&world.dual.in_dir(&dst, GridDirection::Down))
+                    .fetch_add(
+                        lerp(dst_y_start_inv.clamp(0.0, 1.0), vel_start_y, vel_end_y) * weight,
+                    );
+                fluid
+                    .next_momentum
+                    .atomic(&world.dual.in_dir(&dst, GridDirection::Up))
+                    .fetch_add(
+                        lerp(dst_y_end_inv.clamp(0.0, 1.0), vel_start_y, vel_end_y) * weight,
+                    );
             }
         }
     })
@@ -151,12 +167,13 @@ fn advect_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>
 #[kernel(run)]
 fn load_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|cell| {
-        if (*cell - 64).cast_f32().norm() < 32.0 {
+        if (*cell - 128).cast_f32().norm() <= 32.0 {
             *fluid.mass.var(&cell) = 1.0;
         }
-        *fluid
-            .velocity
-            .var(&world.dual.in_dir(&cell, GridDirection::Right)) = 1.0;
+        if cell.y < 20 || cell.x < 40 || cell.x > 256 - 40 {
+            *fluid.solid.var(&cell) = true;
+            *fluid.mass.var(&cell) = 1.0;
+        }
     })
 }
 
@@ -165,7 +182,9 @@ fn update_fluids() -> impl AsNodes {
         advect_kernel.dispatch(),
         copy_kernel.dispatch(),
         clear_kernel.dispatch(),
-        // divergence_kernel.dispatch(),
+        divergence_kernel.dispatch(),
+        divergence_kernel.dispatch(),
+        divergence_kernel.dispatch(),
     )
         .chain()
 }

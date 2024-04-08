@@ -82,6 +82,17 @@ impl FromWorld for DebugUiState {
         }
         if let Some(fluid) = world.get_resource::<FluidFields>() {
             debug_fields.push(("Fluid Mass", fluid.mass.id()));
+            let overpressure = fields.create_bind(
+                "fluid-overpressure",
+                fluid.mass.map(track_nc!(|x| {
+                    if x > 1.1 {
+                        (x - 1.0) * Vec3::new(1.0, 0.0, 0.0)
+                    } else {
+                        **x * Vec3::splat(1.0_f32)
+                    }
+                })),
+            );
+            debug_fields.push(("Overpressure", overpressure.id()));
             debug_fields.push(("Fluid Walls", fluid.solid.id()));
         }
         Self {

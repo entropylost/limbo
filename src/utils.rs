@@ -127,3 +127,7 @@ impl Cross<Expr<Vec2<f32>>> for Expr<f32> {
         Vec2::expr(-*self * other.y, self * other.x)
     }
 }
+
+pub fn lerp(t: Expr<f32>, a: Expr<f32>, b: Expr<f32>) -> Expr<f32> {
+    a.lerp(b, t)
+}
