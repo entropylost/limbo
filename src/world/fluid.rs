@@ -9,6 +9,7 @@ pub struct FluidFields {
     pub ty: VField<u32, Cell>,
     pub next_ty: VField<u32, Cell>,
     pub velocity: VField<Vec2<f32>, Cell>,
+    pub edge_velocity: VField<f32, Edge>,
     pub next_velocity: VField<Vec2<f32>, Cell>,
     pub solid: VField<bool, Cell>,
     _fields: FieldSet,
@@ -20,11 +21,75 @@ fn setup_fluids(mut commands: Commands, device: Res<Device>, world: Res<World>) 
         ty: *fields.create_bind("fluid-ty", world.create_buffer(&device)),
         next_ty: *fields.create_bind("fluid-next-ty", world.create_buffer(&device)),
         velocity: *fields.create_bind("fluid-velocity", world.create_buffer(&device)),
+        edge_velocity: *fields
+            .create_bind("fluid-edge-velocity", world.dual.create_buffer(&device)),
         next_velocity: *fields.create_bind("fluid-next-velocity", world.create_buffer(&device)),
         solid: *fields.create_bind("fluid-solid", world.create_buffer(&device)),
         _fields: fields,
     };
     commands.insert_resource(fluid);
+}
+
+#[kernel]
+fn extract_edges(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) -> Kernel<fn()> {
+    Kernel::build(&device, &**world, &|cell| {
+        if fluid.ty.expr(&cell) == 0 {
+            return;
+        }
+        for dir in GridDirection::iter_all() {
+            let edge = world.dual.in_dir(&cell, dir);
+            let opposite = world.in_dir(&cell, dir);
+            if fluid.ty.expr(&opposite) == 0 {
+                *fluid.edge_velocity.var(&edge) =
+                    Facing::from(dir).extract(fluid.velocity.expr(&cell));
+            }
+        }
+    })
+}
+
+#[kernel]
+fn extract_cells(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) -> Kernel<fn()> {
+    Kernel::build(&device, &**world, &|cell| {
+        if fluid.ty.expr(&cell) == 0 {
+            return;
+        }
+        let vel = Vec2::<f32>::var_zeroed();
+        for dir in GridDirection::iter_all() {
+            let edge = world.dual.in_dir(&cell, dir);
+            *vel += fluid.edge_velocity.expr(&edge) * Facing::from(dir).as_vec_f32();
+        }
+        *fluid.velocity.var(&cell) = vel / 2.0;
+    })
+}
+
+#[kernel]
+fn divergence_solve(
+    device: Res<Device>,
+    world: Res<World>,
+    fluid: Res<FluidFields>,
+) -> Kernel<fn()> {
+    Kernel::build(&device, &**world, &|cell| {
+        if fluid.ty.expr(&cell) == 0 {
+            return;
+        }
+        let divergence = 0.0_f32.var();
+        let solids = 0_u32.var();
+        for dir in GridDirection::iter_all() {
+            let edge = world.dual.in_dir(&cell, dir);
+            if !fluid.solid.expr(&world.in_dir(&cell, dir)) {
+                *divergence += fluid.edge_velocity.expr(&edge) * dir.signf();
+                *solids += 1;
+            }
+        }
+        *solids = max(solids, 1);
+        let pressure = divergence / solids.cast_f32();
+        for dir in GridDirection::iter_all() {
+            let edge = world.dual.in_dir(&cell, dir);
+            if !fluid.solid.expr(&world.in_dir(&cell, dir)) {
+                *fluid.edge_velocity.var(&edge) += -pressure * dir.signf();
+            }
+        }
+    })
 }
 
 #[kernel]
@@ -144,8 +209,8 @@ fn load_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) 
 
 #[kernel]
 fn cursor_kernel(device: Res<Device>, fluid: Res<FluidFields>) -> Kernel<fn(Vec2<i32>)> {
-    Kernel::build(&device, &StaticDomain::<2>::new(8, 8), &|cell, cpos| {
-        let pos = cpos + cell.cast_i32() - 4;
+    Kernel::build(&device, &StaticDomain::<2>::new(1, 1), &|cell, cpos| {
+        let pos = cpos; // + cell.cast_i32() - 4;
         let cell = cell.at(pos);
         *fluid.ty.var(&cell) = 1;
     })
@@ -160,7 +225,7 @@ fn update_fluids(
         cursor_kernel.dispatch_blocking(&Vec2::from(cursor.position.map(|x| x as i32)));
     }
     *parity ^= true;
-    if *parity {
+    let mv = if *parity {
         (move_x_kernel.dispatch(), copy_kernel.dispatch()).chain()
     } else {
         (
@@ -169,7 +234,16 @@ fn update_fluids(
             copy_kernel.dispatch(),
         )
             .chain()
-    }
+    };
+    (
+        extract_edges.dispatch(),
+        divergence_solve.dispatch(),
+        divergence_solve.dispatch(),
+        divergence_solve.dispatch(),
+        extract_cells.dispatch(),
+        mv,
+    )
+        .chain()
 }
 
 pub struct FluidPlugin;
@@ -185,6 +259,9 @@ impl Plugin for FluidPlugin {
                     init_move_y_kernel,
                     init_cursor_kernel,
                     init_load_kernel,
+                    init_extract_edges,
+                    init_extract_cells,
+                    init_divergence_solve,
                 ),
             )
             .add_systems(WorldInit, add_init(load))
