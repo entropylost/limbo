@@ -2,13 +2,14 @@ use sefirot::mapping::buffer::StaticDomain;
 use sefirot_grid::dual::Facing;
 
 use crate::prelude::*;
+use crate::ui::debug::DebugCursor;
 
 #[derive(Resource)]
 pub struct FluidFields {
     pub ty: VField<u32, Cell>,
     pub next_ty: VField<u32, Cell>,
-    pub velocity: VField<Vec2<i32>, Cell>,
-    pub next_velocity: VField<Vec2<i32>, Cell>,
+    pub velocity: VField<Vec2<f32>, Cell>,
+    pub next_velocity: VField<Vec2<f32>, Cell>,
     pub solid: VField<bool, Cell>,
     _fields: FieldSet,
 }
@@ -30,7 +31,7 @@ fn setup_fluids(mut commands: Commands, device: Res<Device>, world: Res<World>) 
 fn apply_gravity(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|cell| {
         if fluid.ty.expr(&cell) != 0 {
-            *fluid.velocity.var(&cell) -= Vec2::new(0, 1);
+            *fluid.velocity.var(&cell) -= Vec2::new(0.0, 0.001);
         }
     })
 }
@@ -41,7 +42,7 @@ fn copy_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) 
         *fluid.ty.var(&cell) = fluid.next_ty.expr(&cell);
         *fluid.velocity.var(&cell) = fluid.next_velocity.expr(&cell);
         *fluid.next_ty.var(&cell) = 0;
-        *fluid.next_velocity.var(&cell) = Vec2::splat(0);
+        *fluid.next_velocity.var(&cell) = Vec2::splat(0.0);
     })
 }
 
@@ -52,8 +53,8 @@ fn move_dir(fluid: &FluidFields, col: Element<Expr<u32>>, facing: Facing) {
         Facing::Vertical => col.at(Vec2::expr(col.cast_i32(), x)),
     };
     let velocity = |cell: &Element<Expr<Vec2<i32>>>| match facing {
-        Facing::Horizontal => fluid.velocity.expr(cell).x,
-        Facing::Vertical => fluid.velocity.expr(cell).y,
+        Facing::Horizontal => fluid.velocity.expr(cell).x.cast_i32(),
+        Facing::Vertical => fluid.velocity.expr(cell).y.cast_i32(),
     };
     // TODO: Can use union-find to find the nearest unoccupied cell.
     let lock = <[u32; 256]>::var([0; 256]);
@@ -62,10 +63,7 @@ fn move_dir(fluid: &FluidFields, col: Element<Expr<u32>>, facing: Facing) {
     let reject = <[u32; 256]>::var([0; 256]);
     for i in 0..256_u32 {
         let i: Expr<u32> = i;
-        if fluid
-            .solid
-            .expr(&col.at(Vec2::expr(col.cast_i32(), i.cast_i32())))
-        {
+        if fluid.solid.expr(&grid_point(i.cast_i32())) {
             lock.write(i, 1);
         }
     }
@@ -117,10 +115,7 @@ fn move_dir(fluid: &FluidFields, col: Element<Expr<u32>>, facing: Facing) {
             continue;
         }
         *fluid.next_ty.var(&cell) = fluid.ty.expr(&src);
-        *fluid.next_velocity.var(&cell) = match facing {
-            Facing::Horizontal => Vec2::expr(v, fluid.velocity.expr(&src).y),
-            Facing::Vertical => Vec2::expr(fluid.velocity.expr(&src).x, v),
-        };
+        *fluid.next_velocity.var(&cell) = fluid.velocity.expr(&src);
     }
 }
 
@@ -140,9 +135,6 @@ fn move_y_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>
 #[kernel(run)]
 fn load_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|cell| {
-        if cell.y >= 150 && cell.x >= 40 && cell.x <= 100 && cell.y < 200 {
-            *fluid.ty.var(&cell) = 1;
-        }
         if cell.y < 60 || cell.x < 40 {
             *fluid.solid.var(&cell) = true;
             // *fluid.mass.var(&cell) = 1.0;
@@ -150,7 +142,31 @@ fn load_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) 
     })
 }
 
-fn update_fluids(mut parity: Local<bool>) -> impl AsNodes {
+#[kernel]
+fn cursor_kernel(device: Res<Device>, fluid: Res<FluidFields>) -> Kernel<fn(Vec2<i32>, Vec2<f32>)> {
+    Kernel::build(
+        &device,
+        &StaticDomain::<2>::new(8, 8),
+        &|cell, cpos, vel| {
+            let pos = cpos + cell.cast_i32() - 4;
+            let cell = cell.at(pos);
+            *fluid.ty.var(&cell) = 1;
+            *fluid.velocity.var(&cell) = vel;
+        },
+    )
+}
+
+fn update_fluids(
+    mut parity: Local<bool>,
+    cursor: Res<DebugCursor>,
+    button: Res<ButtonInput<MouseButton>>,
+) -> impl AsNodes {
+    if button.pressed(MouseButton::Left) {
+        cursor_kernel.dispatch_blocking(
+            &Vec2::from(cursor.position.map(|x| x as i32)),
+            &Vec2::from(cursor.velocity / 60.0),
+        );
+    }
     *parity ^= true;
     if *parity {
         (move_x_kernel.dispatch(), copy_kernel.dispatch()).chain()
@@ -175,6 +191,7 @@ impl Plugin for FluidPlugin {
                     init_apply_gravity,
                     init_move_x_kernel,
                     init_move_y_kernel,
+                    init_cursor_kernel,
                     init_load_kernel,
                 ),
             )

@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use sefirot::field::FieldId;
 use sefirot::track_nc;
 
@@ -5,6 +7,7 @@ use super::UiContext;
 use crate::prelude::*;
 use crate::render::debug::DebugParameters;
 use crate::render::light::LightParameters;
+use crate::render::{RenderConstants, RenderFields, RenderParameters};
 use crate::world::flow::FlowFields;
 use crate::world::fluid::FluidFields;
 use crate::world::impeller::ImpellerFields;
@@ -146,10 +149,58 @@ fn render_ui(
     });
 }
 
+// TODO: Refactor to separate file.
+#[derive(Resource, Copy, Clone, Debug)]
+pub struct DebugCursor {
+    pub velocity: Vector2<f32>,
+    pub position: Vector2<f32>,
+    last_set_time: Instant,
+}
+impl Default for DebugCursor {
+    fn default() -> Self {
+        Self {
+            velocity: Vector2::zeros(),
+            position: Vector2::zeros(),
+            last_set_time: Instant::now(),
+        }
+    }
+}
+
+fn update_debug_cursor(
+    render_consts: Res<RenderConstants>,
+    render_params: Res<RenderParameters>,
+    render: Res<RenderFields>,
+    mut cursor: ResMut<DebugCursor>,
+    windows: Query<&Window>,
+) {
+    for window in windows.iter() {
+        if let Some(pos) = window.physical_cursor_position() {
+            let new_pos = Vector2::new(
+                pos.x / render_consts.scaling as f32 + render_params.view_center.x
+                    - render.screen_domain.width() as f32 / 2.0 / render_consts.scaling as f32,
+                -pos.y / render_consts.scaling as f32
+                    + render_params.view_center.y
+                    + render.screen_domain.height() as f32 / 2.0 / render_consts.scaling as f32,
+            );
+            let dt = cursor.last_set_time.elapsed().as_secs_f32();
+            if dt > 0.5 {
+                cursor.velocity = Vector2::zeros();
+            } else {
+                cursor.velocity = (new_pos - cursor.position) / dt;
+            }
+            cursor.position = new_pos;
+            cursor.last_set_time = Instant::now();
+            return;
+        }
+    }
+}
+
 pub struct DebugUiPlugin;
 impl Plugin for DebugUiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PostStartup, init_resource::<DebugUiState>)
-            .add_systems(PostUpdate, (render_ui, activate_renders).chain());
+        app.init_resource::<DebugCursor>()
+            .add_systems(PostStartup, init_resource::<DebugUiState>)
+            .add_systems(PostUpdate, (render_ui, activate_renders).chain())
+            .add_systems(PostUpdate, update_debug_cursor);
     }
 }
