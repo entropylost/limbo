@@ -81,19 +81,8 @@ impl FromWorld for DebugUiState {
             debug_fields.push(("Active Tiles", active.id()))
         }
         if let Some(fluid) = world.get_resource::<FluidFields>() {
-            debug_fields.push(("Fluid Mass", fluid.mass.id()));
-            let overpressure = fields.create_bind(
-                "fluid-overpressure",
-                fluid.mass.map(track_nc!(|x| {
-                    if x > 1.1 {
-                        (x - 1.0) * Vec3::new(1.0, 0.0, 0.0)
-                    } else {
-                        **x * Vec3::splat(1.0_f32)
-                    }
-                })),
-            );
             let ty = fields.create_bind(
-                "debug-object",
+                "debug-fluid-ty",
                 fluid.ty.map(track_nc!(|x| {
                     if x == 0 {
                         Vec3::splat_expr(0.0_f32)
@@ -105,7 +94,7 @@ impl FromWorld for DebugUiState {
                 })),
             );
             debug_fields.push(("Type", ty.id()));
-            debug_fields.push(("Overpressure", overpressure.id()));
+            debug_fields.push(("Velocity", fluid.velocity.id()));
             debug_fields.push(("Fluid Walls", fluid.solid.id()));
         }
         Self {

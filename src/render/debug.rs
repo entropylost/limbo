@@ -27,6 +27,8 @@ fn compute_kernel(
                 Vec3::splat(1.0) * field.expr(&cell)
             } else if let Some(field) = field.get_typed::<Expr<Vec3<f32>>, Cell>() {
                 field.expr(&cell)
+            } else if let Some(field) = field.get_typed::<Expr<Vec2<i32>>, Cell>() {
+                Vec3::splat(1.0) * field.expr(&cell).cast_f32().norm() / 8.0
             } else {
                 panic!("Invalid field type");
             };
