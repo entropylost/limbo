@@ -8,8 +8,7 @@ use crate::prelude::*;
 use crate::render::debug::DebugParameters;
 use crate::render::light::LightParameters;
 use crate::render::{RenderConstants, RenderFields, RenderParameters};
-use crate::world::flow::FlowFields;
-use crate::world::fluid::FluidFields;
+use crate::world::fluid::{FlowFields, FluidFields};
 use crate::world::impeller::ImpellerFields;
 use crate::world::physics::{CollisionFields, PhysicsFields, NULL_OBJECT};
 use crate::world::tiled_test::TiledTestFields;
@@ -74,10 +73,6 @@ impl FromWorld for DebugUiState {
             );
             debug_fields.push(("Velocity", debug_velocity.id()));
         }
-        if let Some(flow) = world.get_resource::<FlowFields>() {
-            let activation: EField<bool, Cell> = *flow.activation;
-            debug_fields.push(("Flow Activation", activation.id()));
-        }
         if let Some(tiled_test_fields) = world.get_resource::<TiledTestFields>() {
             debug_fields.push(("Tiled Test Data", tiled_test_fields.data_field.id()));
             let active = fields.create_bind("tiled-test-active", tiled_test_fields.domain.active());
@@ -109,6 +104,9 @@ impl FromWorld for DebugUiState {
             debug_fields.push(("X Velocity", x_vel.id()));
             debug_fields.push(("Y Velocity", y_vel.id()));
             debug_fields.push(("Fluid Walls", fluid.solid.id()));
+        }
+        if let Some(flow) = world.get_resource::<FlowFields>() {
+            debug_fields.push(("Flow Mass", flow.mass.id()));
         }
         Self {
             activate_debug_render: false,
@@ -164,6 +162,7 @@ fn render_ui(
 pub struct DebugCursor {
     pub velocity: Vector2<f32>,
     pub position: Vector2<f32>,
+    pub on_world: bool,
     last_set_time: Instant,
 }
 impl Default for DebugCursor {
@@ -171,6 +170,7 @@ impl Default for DebugCursor {
         Self {
             velocity: Vector2::zeros(),
             position: Vector2::zeros(),
+            on_world: false,
             last_set_time: Instant::now(),
         }
     }
@@ -181,8 +181,11 @@ fn update_debug_cursor(
     render_params: Res<RenderParameters>,
     render: Res<RenderFields>,
     mut cursor: ResMut<DebugCursor>,
+    mut ctx: UiContext,
     windows: Query<&Window>,
 ) {
+    let mut ctx = ctx.single_mut();
+    cursor.on_world = !ctx.get_mut().wants_pointer_input();
     for window in windows.iter() {
         if let Some(pos) = window.physical_cursor_position() {
             let new_pos = Vector2::new(
@@ -210,7 +213,9 @@ impl Plugin for DebugUiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<DebugCursor>()
             .add_systems(PostStartup, init_resource::<DebugUiState>)
-            .add_systems(PostUpdate, (render_ui, activate_renders).chain())
-            .add_systems(PostUpdate, update_debug_cursor);
+            .add_systems(
+                PostUpdate,
+                (render_ui, activate_renders, update_debug_cursor).chain(),
+            );
     }
 }
