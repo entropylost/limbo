@@ -128,6 +128,9 @@ impl Cross<Expr<Vec2<f32>>> for Expr<f32> {
     }
 }
 
-pub fn lerp(t: Expr<f32>, a: Expr<f32>, b: Expr<f32>) -> Expr<f32> {
+pub fn lerp<T, S, U>(t: U, a: T, b: S) -> T::Output
+where
+    T: FloatLerpExpr<S, U>,
+{
     a.lerp(b, t)
 }

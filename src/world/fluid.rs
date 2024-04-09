@@ -54,14 +54,14 @@ fn extract_edges(
         if fluid.ty.expr(&cell) == 0 {
             return;
         }
-        for dir in GridDirection::iter_all() {
-            let edge = world.dual.in_dir(&cell, dir);
-            let opposite = world.in_dir(&cell, dir);
-            if fluid.ty.expr(&opposite) == 0 {
-                *flow.velocity.var(&edge) =
-                    Facing::from(dir).extract(fluid.velocity.expr(&cell).round());
-            }
-        }
+        // for dir in GridDirection::iter_all() {
+        //     let edge = world.dual.in_dir(&cell, dir);
+        //     let opposite = world.in_dir(&cell, dir);
+        //     if fluid.ty.expr(&opposite) == 0 && !fluid.solid.expr(&opposite) {
+        //         *flow.velocity.var(&edge) =
+        //             Facing::from(dir).extract(fluid.velocity.expr(&cell).round());
+        //     }
+        // }
         *flow.mass.var(&cell) = flow.mass.var(&cell) * 0.99 + 0.01;
     })
 }
@@ -82,7 +82,7 @@ fn extract_cells(
             let edge = world.dual.in_dir(&cell, dir);
             *vel += flow.velocity.expr(&edge) * Facing::from(dir).as_vec_f32();
         }
-        *fluid.velocity.var(&cell) += vel / 2.0 - fluid.velocity.expr(&cell).round();
+        *fluid.velocity.var(&cell) = vel / 2.0;
     })
 }
 #[kernel]
@@ -358,11 +358,16 @@ fn load_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) 
 }
 
 #[kernel]
-fn cursor_kernel(device: Res<Device>, fluid: Res<FluidFields>) -> Kernel<fn(Vec2<i32>)> {
+fn cursor_kernel(
+    device: Res<Device>,
+    fluid: Res<FluidFields>,
+    flow: Res<FlowFields>,
+) -> Kernel<fn(Vec2<i32>)> {
     Kernel::build(&device, &StaticDomain::<2>::new(8, 8), &|cell, cpos| {
         let pos = cpos + cell.cast_i32() - 4;
         let cell = cell.at(pos);
         *fluid.ty.var(&cell) = 1;
+        *flow.mass.var(&cell) = 1.05;
     })
 }
 #[kernel]
