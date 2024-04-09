@@ -281,7 +281,7 @@ fn move_dir(fluid: &FluidFields, col: Element<Expr<u32>>, facing: Facing, single
             continue;
         }
         let v = velocity(&cell);
-        let dst = (i.cast_i32() + v).clamp(0, 255).cast_u32();
+        let dst = (i.cast_i32() + v).rem_euclid(256).cast_u32();
         lock.write(dst, lock.read(dst) + 1);
     }
     for i in 0..256_u32 {
@@ -292,7 +292,7 @@ fn move_dir(fluid: &FluidFields, col: Element<Expr<u32>>, facing: Facing, single
             continue;
         }
         let v = velocity(&cell);
-        let dst = (i.cast_i32() + v).clamp(0, 255).cast_u32();
+        let dst = (i.cast_i32() + v).rem_euclid(256).cast_u32();
         if lock.read(dst) == 1 {
             vel.write(dst, (dst - i).cast_i32());
         } else {
@@ -381,15 +381,26 @@ fn cursor_kernel(
     })
 }
 #[kernel]
+fn paint_kernel(device: Res<Device>, fluid: Res<FluidFields>) -> Kernel<fn(Vec2<i32>)> {
+    Kernel::build(&device, &StaticDomain::<2>::new(8, 8), &|cell, cpos| {
+        let pos = cpos + cell.cast_i32() - 4;
+        let cell = cell.at(pos);
+        if fluid.ty.expr(&cell) == 1 {
+            *fluid.ty.var(&cell) = 2;
+        }
+    })
+}
+
+#[kernel]
 fn cursor_vel_kernel(
     device: Res<Device>,
     fluid: Res<FluidFields>,
 ) -> Kernel<fn(Vec2<i32>, Vec2<f32>)> {
     Kernel::build(
         &device,
-        &StaticDomain::<2>::new(8, 8),
+        &StaticDomain::<2>::new(32, 32),
         &|cell, cpos, cvel| {
-            let pos = cpos + cell.cast_i32() - 4;
+            let pos = cpos + cell.cast_i32() - 16;
             let cell = cell.at(pos);
             *fluid.velocity.var(&cell) = cvel;
         },
@@ -485,6 +496,7 @@ impl Plugin for FluidPlugin {
                     init_extract_cells,
                     init_advect_kernel,
                     init_clear_kernel,
+                    init_paint_kernel,
                     init_divergence_kernel,
                 ),
             )
