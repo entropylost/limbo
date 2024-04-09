@@ -58,7 +58,7 @@ fn extract_edges(
             let edge = world.dual.in_dir(&cell, dir);
             let opposite = world.in_dir(&cell, dir);
             if fluid.ty.expr(&opposite) == 0 && !fluid.solid.expr(&opposite) {
-                *flow.velocity.var(&edge) = 0.0;
+                *flow.velocity.var(&edge) = 0.0001 * dir.signf();
             }
         }
         *flow.mass.var(&cell) += 0.01;
@@ -110,7 +110,7 @@ fn divergence_kernel(
         }
         *solids = max(solids, 1);
         let pressure = 0.2 * divergence / solids.cast_f32()
-            - 0.1 * max(flow.mass.expr(&cell) - 1.0, 0.0) * 4.0 / solids.cast_f32();
+            - 0.4 * max(flow.mass.expr(&cell) - 1.0, 0.0) * 4.0 / solids.cast_f32();
         for dir in GridDirection::iter_all() {
             let edge = world.dual.in_dir(&cell, dir);
             if !fluid.solid.expr(&world.in_dir(&cell, dir)) {
@@ -148,8 +148,12 @@ fn copy_flow_kernel(
             } else {
                 1.0_f32.expr()
             };
-        let edge = world.dual.in_dir(&cell, GridDirection::Up);
-        *flow.velocity.var(&edge) -= 0.005_f32;
+        for dir in [GridDirection::Right, GridDirection::Up] {
+            let edge = world.dual.in_dir(&cell, dir);
+            if dir == GridDirection::Up {
+                *flow.velocity.var(&edge) = -0.005_f32;
+            }
+        }
     })
 }
 
@@ -167,8 +171,8 @@ fn move_dir(fluid: &FluidFields, col: Element<Expr<u32>>, facing: Facing, single
             }
         } else {
             match facing {
-                Facing::Horizontal => (fluid.velocity.expr(cell).x).round().cast_i32(),
-                Facing::Vertical => (fluid.velocity.expr(cell).y).round().cast_i32(),
+                Facing::Horizontal => (fluid.velocity.expr(cell).x * 10.0).round().cast_i32(),
+                Facing::Vertical => (fluid.velocity.expr(cell).y * 10.0).round().cast_i32(),
             }
         }
     };
@@ -375,13 +379,7 @@ fn update_fluids(
     (
         extract_edges.dispatch(),
         mv,
-        (
-            copy_flow_kernel.dispatch(),
-            divergence_kernel.dispatch(),
-            divergence_kernel.dispatch(),
-            divergence_kernel.dispatch(),
-        )
-            .chain(),
+        (copy_flow_kernel.dispatch(), divergence_kernel.dispatch()).chain(),
         extract_cells.dispatch(),
     )
         .chain()
