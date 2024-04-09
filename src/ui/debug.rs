@@ -96,8 +96,18 @@ impl FromWorld for DebugUiState {
                     }
                 })),
             );
+            let x_vel = fields.create_bind(
+                "debug-fluid-x-vel",
+                fluid.velocity.map(track_nc!(|v| v.x.abs())),
+            );
+            let y_vel = fields.create_bind(
+                "debug-fluid-y-vel",
+                fluid.velocity.map(track_nc!(|v| v.y.abs())),
+            );
             debug_fields.push(("Type", ty.id()));
             debug_fields.push(("Velocity", fluid.velocity.id()));
+            debug_fields.push(("X Velocity", x_vel.id()));
+            debug_fields.push(("Y Velocity", y_vel.id()));
             debug_fields.push(("Fluid Walls", fluid.solid.id()));
         }
         Self {

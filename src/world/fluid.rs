@@ -61,6 +61,41 @@ fn extract_cells(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>
         *fluid.velocity.var(&cell) = vel / 2.0;
     })
 }
+#[kernel]
+fn reset_solid_kernel(
+    device: Res<Device>,
+    world: Res<World>,
+    fluid: Res<FluidFields>,
+) -> Kernel<fn()> {
+    Kernel::build(&device, &**world, &|cell| {
+        if !fluid.solid.expr(&cell) {
+            return;
+        }
+        for dir in GridDirection::iter_all() {
+            let edge = world.dual.in_dir(&cell, dir);
+            *fluid.edge_velocity.var(&edge) = 0.0;
+        }
+    })
+}
+
+#[kernel]
+fn blur_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) -> Kernel<fn()> {
+    Kernel::build(&device, &world.checkerboard(), &|cell| {
+        if fluid.ty.expr(&cell) == 0 {
+            return;
+        }
+        for [a, b] in [
+            [GridDirection::Up, GridDirection::Down],
+            [GridDirection::Right, GridDirection::Left],
+        ] {
+            let a = world.dual.in_dir(&cell, a);
+            let b = world.dual.in_dir(&cell, b);
+            let avg = (fluid.edge_velocity.expr(&a) + fluid.edge_velocity.expr(&b)) / 2.0;
+            *fluid.edge_velocity.var(&a) = fluid.edge_velocity.expr(&a) * 0.9 + avg * 0.1;
+            *fluid.edge_velocity.var(&b) = fluid.edge_velocity.expr(&b) * 0.9 + avg * 0.1;
+        }
+    })
+}
 
 #[kernel]
 fn divergence_solve(
@@ -68,7 +103,7 @@ fn divergence_solve(
     world: Res<World>,
     fluid: Res<FluidFields>,
 ) -> Kernel<fn()> {
-    Kernel::build(&device, &**world, &|cell| {
+    Kernel::build(&device, &world.checkerboard(), &|cell| {
         if fluid.ty.expr(&cell) == 0 {
             return;
         }
@@ -95,8 +130,11 @@ fn divergence_solve(
 #[kernel]
 fn apply_gravity(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|cell| {
-        if fluid.ty.expr(&cell) != 0 {
-            *fluid.velocity.var(&cell) -= Vec2::new(0.0, 0.1);
+        if fluid.ty.expr(&cell) != 0 || fluid.ty.expr(&world.in_dir(&cell, GridDirection::Up)) != 0
+        {
+            *fluid
+                .edge_velocity
+                .var(&world.dual.in_dir(&cell, GridDirection::Up)) -= 0.1;
         }
     })
 }
@@ -112,14 +150,23 @@ fn copy_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) 
 }
 
 #[tracked]
-fn move_dir(fluid: &FluidFields, col: Element<Expr<u32>>, facing: Facing) {
+fn move_dir(fluid: &FluidFields, col: Element<Expr<u32>>, facing: Facing, single: bool) {
     let grid_point = |x: Expr<i32>| match facing {
         Facing::Horizontal => col.at(Vec2::expr(x, col.cast_i32())),
         Facing::Vertical => col.at(Vec2::expr(col.cast_i32(), x)),
     };
-    let velocity = |cell: &Element<Expr<Vec2<i32>>>| match facing {
-        Facing::Horizontal => fluid.velocity.expr(cell).x.cast_i32(),
-        Facing::Vertical => fluid.velocity.expr(cell).y.cast_i32(),
+    let velocity = |cell: &Element<Expr<Vec2<i32>>>| {
+        let v = match facing {
+            Facing::Horizontal => fluid.velocity.expr(cell).x.cast_i32(),
+            Facing::Vertical => fluid.velocity.expr(cell).y.cast_i32(),
+        };
+        if single && v < 0 {
+            (-1).expr()
+        } else if single && v > 0 {
+            1.expr()
+        } else {
+            v
+        }
     };
     // TODO: Can use union-find to find the nearest unoccupied cell.
     let lock = <[u32; 256]>::var([0; 256]);
@@ -176,7 +223,7 @@ fn move_dir(fluid: &FluidFields, col: Element<Expr<u32>>, facing: Facing) {
         let cell = grid_point(i.cast_i32());
         let v = vel.read(i);
         let src = grid_point(i.cast_i32() - v);
-        if lock.read(i) == 0 {
+        if lock.read(i) != 1 {
             continue;
         }
         *fluid.next_ty.var(&cell) = fluid.ty.expr(&src);
@@ -187,13 +234,34 @@ fn move_dir(fluid: &FluidFields, col: Element<Expr<u32>>, facing: Facing) {
 #[kernel]
 fn move_x_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) -> Kernel<fn()> {
     Kernel::build(&device, &StaticDomain::<1>::new(world.width()), &|col| {
-        move_dir(&fluid, col, Facing::Horizontal);
+        move_dir(&fluid, col, Facing::Horizontal, false);
     })
 }
 #[kernel]
 fn move_y_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) -> Kernel<fn()> {
     Kernel::build(&device, &StaticDomain::<1>::new(world.width()), &|col| {
-        move_dir(&fluid, col, Facing::Vertical);
+        move_dir(&fluid, col, Facing::Vertical, false);
+    })
+}
+
+#[kernel]
+fn move_x_single_kernel(
+    device: Res<Device>,
+    world: Res<World>,
+    fluid: Res<FluidFields>,
+) -> Kernel<fn()> {
+    Kernel::build(&device, &StaticDomain::<1>::new(world.width()), &|col| {
+        move_dir(&fluid, col, Facing::Horizontal, true);
+    })
+}
+#[kernel]
+fn move_y_single_kernel(
+    device: Res<Device>,
+    world: Res<World>,
+    fluid: Res<FluidFields>,
+) -> Kernel<fn()> {
+    Kernel::build(&device, &StaticDomain::<1>::new(world.width()), &|col| {
+        move_dir(&fluid, col, Facing::Vertical, true);
     })
 }
 
@@ -209,11 +277,26 @@ fn load_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) 
 
 #[kernel]
 fn cursor_kernel(device: Res<Device>, fluid: Res<FluidFields>) -> Kernel<fn(Vec2<i32>)> {
-    Kernel::build(&device, &StaticDomain::<2>::new(1, 1), &|cell, cpos| {
-        let pos = cpos; // + cell.cast_i32() - 4;
+    Kernel::build(&device, &StaticDomain::<2>::new(8, 8), &|cell, cpos| {
+        let pos = cpos + cell.cast_i32() - 4;
         let cell = cell.at(pos);
         *fluid.ty.var(&cell) = 1;
     })
+}
+#[kernel]
+fn cursor_vel_kernel(
+    device: Res<Device>,
+    fluid: Res<FluidFields>,
+) -> Kernel<fn(Vec2<i32>, Vec2<f32>)> {
+    Kernel::build(
+        &device,
+        &StaticDomain::<2>::new(8, 8),
+        &|cell, cpos, cvel| {
+            let pos = cpos + cell.cast_i32() - 4;
+            let cell = cell.at(pos);
+            *fluid.velocity.var(&cell) = cvel;
+        },
+    )
 }
 
 fn update_fluids(
@@ -224,22 +307,38 @@ fn update_fluids(
     if button.pressed(MouseButton::Left) {
         cursor_kernel.dispatch_blocking(&Vec2::from(cursor.position.map(|x| x as i32)));
     }
+    if button.pressed(MouseButton::Right) {
+        cursor_vel_kernel.dispatch_blocking(
+            &Vec2::from(cursor.position.map(|x| x as i32)),
+            &Vec2::from(cursor.velocity / 60.0),
+        );
+    }
     *parity ^= true;
     let mv = if *parity {
-        (move_x_kernel.dispatch(), copy_kernel.dispatch()).chain()
+        (
+            move_x_kernel.dispatch(),
+            copy_kernel.dispatch(),
+            move_y_single_kernel.dispatch(),
+            copy_kernel.dispatch(),
+        )
+            .chain()
     } else {
         (
-            apply_gravity.dispatch(),
             move_y_kernel.dispatch(),
+            copy_kernel.dispatch(),
+            move_x_single_kernel.dispatch(),
             copy_kernel.dispatch(),
         )
             .chain()
     };
     (
         extract_edges.dispatch(),
+        apply_gravity.dispatch(),
+        reset_solid_kernel.dispatch(),
+        // blur_kernel.dispatch(),
         divergence_solve.dispatch(),
-        divergence_solve.dispatch(),
-        divergence_solve.dispatch(),
+        // divergence_solve.dispatch(),
+        // divergence_solve.dispatch(),
         extract_cells.dispatch(),
         mv,
     )
@@ -253,14 +352,19 @@ impl Plugin for FluidPlugin {
             .add_systems(
                 InitKernel,
                 (
+                    init_cursor_vel_kernel,
                     init_copy_kernel,
                     init_apply_gravity,
                     init_move_x_kernel,
                     init_move_y_kernel,
+                    init_move_x_single_kernel,
+                    init_move_y_single_kernel,
                     init_cursor_kernel,
                     init_load_kernel,
                     init_extract_edges,
                     init_extract_cells,
+                    init_reset_solid_kernel,
+                    init_blur_kernel,
                     init_divergence_solve,
                 ),
             )
