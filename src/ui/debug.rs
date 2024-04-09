@@ -8,7 +8,7 @@ use crate::prelude::*;
 use crate::render::debug::DebugParameters;
 use crate::render::light::LightParameters;
 use crate::render::{RenderConstants, RenderFields, RenderParameters};
-use crate::world::fluid::{FlowFields, FluidFields};
+use crate::world::fluid::FluidFields;
 use crate::world::impeller::ImpellerFields;
 use crate::world::physics::{CollisionFields, PhysicsFields, NULL_OBJECT};
 use crate::world::tiled_test::TiledTestFields;
@@ -104,9 +104,7 @@ impl FromWorld for DebugUiState {
             debug_fields.push(("X Velocity", x_vel.id()));
             debug_fields.push(("Y Velocity", y_vel.id()));
             debug_fields.push(("Fluid Walls", fluid.solid.id()));
-        }
-        if let Some(flow) = world.get_resource::<FlowFields>() {
-            debug_fields.push(("Flow Mass", flow.mass.id()));
+            debug_fields.push(("Fluid Pressure", fluid.pressure.id()));
         }
         Self {
             activate_debug_render: false,
