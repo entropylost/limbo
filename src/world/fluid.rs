@@ -54,15 +54,15 @@ fn extract_edges(
         if fluid.ty.expr(&cell) == 0 {
             return;
         }
-        // for dir in GridDirection::iter_all() {
-        //     let edge = world.dual.in_dir(&cell, dir);
-        //     let opposite = world.in_dir(&cell, dir);
-        //     if fluid.ty.expr(&opposite) == 0 && !fluid.solid.expr(&opposite) {
-        //         *flow.velocity.var(&edge) =
-        //             Facing::from(dir).extract(fluid.velocity.expr(&cell).round());
-        //     }
-        // }
-        *flow.mass.var(&cell) = flow.mass.var(&cell) * 0.99 + 0.01;
+        for dir in GridDirection::iter_all() {
+            let edge = world.dual.in_dir(&cell, dir);
+            let opposite = world.in_dir(&cell, dir);
+            if fluid.ty.expr(&opposite) == 0 && !fluid.solid.expr(&opposite) {
+                *flow.velocity.var(&edge) =
+                    Facing::from(dir).extract(fluid.velocity.expr(&cell).round());
+            }
+        }
+        *flow.mass.var(&cell) += 0.01;
     })
 }
 
@@ -147,9 +147,19 @@ fn clear_kernel(device: Res<Device>, world: Res<World>, flow: Res<FlowFields>) -
 }
 
 #[kernel]
-fn copy_flow_kernel(device: Res<Device>, world: Res<World>, flow: Res<FlowFields>) -> Kernel<fn()> {
+fn copy_flow_kernel(
+    device: Res<Device>,
+    world: Res<World>,
+    flow: Res<FlowFields>,
+    fluid: Res<FluidFields>,
+) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|cell| {
-        *flow.mass.var(&cell) = flow.next_mass.expr(&cell);
+        *flow.mass.var(&cell) = flow.next_mass.expr(&cell)
+            * if fluid.ty.expr(&cell) == 0 {
+                0.99.expr()
+            } else {
+                1.0_f32.expr()
+            };
         for dir in [GridDirection::Right, GridDirection::Up] {
             let edge = world.dual.in_dir(&cell, dir);
             let opposite = world.in_dir(&cell, dir);
@@ -240,16 +250,16 @@ fn move_dir(fluid: &FluidFields, col: Element<Expr<u32>>, facing: Facing, single
         Facing::Vertical => col.at(Vec2::expr(col.cast_i32(), x)),
     };
     let velocity = |cell: &Element<Expr<Vec2<i32>>>| {
-        let v = match facing {
-            Facing::Horizontal => fluid.velocity.expr(cell).x.round().cast_i32(),
-            Facing::Vertical => fluid.velocity.expr(cell).y.round().cast_i32(),
-        };
-        if single && v < 0 {
-            (-1).expr()
-        } else if single && v > 0 {
-            1.expr()
+        if single {
+            match facing {
+                Facing::Horizontal => fluid.velocity.expr(cell).x.signum().cast_i32(),
+                Facing::Vertical => fluid.velocity.expr(cell).y.signum().cast_i32(),
+            }
         } else {
-            v
+            match facing {
+                Facing::Horizontal => fluid.velocity.expr(cell).x.round().cast_i32(),
+                Facing::Vertical => fluid.velocity.expr(cell).y.round().cast_i32(),
+            }
         }
     };
     // TODO: Can use union-find to find the nearest unoccupied cell.
@@ -367,7 +377,7 @@ fn cursor_kernel(
         let pos = cpos + cell.cast_i32() - 4;
         let cell = cell.at(pos);
         *fluid.ty.var(&cell) = 1;
-        *flow.mass.var(&cell) = 1.05;
+        *flow.mass.var(&cell) = 1.0;
     })
 }
 #[kernel]
@@ -439,18 +449,16 @@ fn update_fluids(
     };
     (
         extract_edges.dispatch(),
+        mv,
         (
-            mv,
-            (
-                advect_kernel.dispatch(),
-                copy_flow_kernel.dispatch(),
-                clear_kernel.dispatch(),
-                divergence_kernel.dispatch(),
-                divergence_kernel.dispatch(),
-                divergence_kernel.dispatch(),
-            )
-                .chain(),
-        ),
+            advect_kernel.dispatch(),
+            copy_flow_kernel.dispatch(),
+            clear_kernel.dispatch(),
+            divergence_kernel.dispatch(),
+            divergence_kernel.dispatch(),
+            divergence_kernel.dispatch(),
+        )
+            .chain(),
         extract_cells.dispatch(),
     )
         .chain()
