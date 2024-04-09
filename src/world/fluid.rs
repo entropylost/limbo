@@ -251,9 +251,14 @@ fn move_dir(fluid: &FluidFields, col: Element<Expr<u32>>, facing: Facing, single
     };
     let velocity = |cell: &Element<Expr<Vec2<i32>>>| {
         if single {
+            let v = if fluid.velocity.expr(cell).x.abs() > fluid.velocity.expr(cell).y.abs() {
+                Vec2::expr(fluid.velocity.expr(cell).x.signum(), 0.0)
+            } else {
+                Vec2::expr(0.0, fluid.velocity.expr(cell).y.signum())
+            };
             match facing {
-                Facing::Horizontal => fluid.velocity.expr(cell).x.signum().cast_i32(),
-                Facing::Vertical => fluid.velocity.expr(cell).y.signum().cast_i32(),
+                Facing::Horizontal => v.x.cast_i32(),
+                Facing::Vertical => v.y.cast_i32(),
             }
         } else {
             match facing {
