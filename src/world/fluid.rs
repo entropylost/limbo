@@ -39,21 +39,33 @@ fn divergence_kernel(
         }
         let divergence = 0.0_f32.var();
         let solids = 0_u32.var();
+        let total_mass = 0.0_f32.var();
         for dir in GridDirection::iter_all() {
             let edge = world.dual.in_dir(&cell, dir);
+            let opposite = world.in_dir(&cell, dir);
             if !fluid.solid.expr(&world.in_dir(&cell, dir)) {
-                *divergence += fluid.velocity.expr(&edge) * dir.signf();
+                let face_mass = min(
+                    max(fluid.mass.expr(&cell) + fluid.mass.expr(&opposite), 0.1),
+                    2.0,
+                );
+                *divergence += fluid.velocity.expr(&edge) * dir.signf() * face_mass;
                 *solids += 1;
+                *total_mass += face_mass;
             }
         }
         *solids = max(solids, 1);
-        let pressure = 0.1 * divergence / solids.cast_f32()
-            - 0.1 * max(fluid.mass.expr(&cell) - 1.0, 0.0) * 4.0 / solids.cast_f32()
-            - 0.002 * max(1.0 - fluid.mass.expr(&cell), 0.0).sqr();
+        let pressure = 1.0 * divergence / solids.cast_f32()
+            - 0.1 * max(fluid.mass.expr(&cell) - 1.0, 0.0) * total_mass * 4.0 / solids.cast_f32(); //- 0.002 * max(1.0 - fluid.mass.expr(&cell), 0.0).sqr();
         for dir in GridDirection::iter_all() {
             let edge = world.dual.in_dir(&cell, dir);
+            let opposite = world.in_dir(&cell, dir);
+
             if !fluid.solid.expr(&world.in_dir(&cell, dir)) {
-                *fluid.velocity.var(&edge) += -pressure * dir.signf();
+                let face_mass = min(
+                    max(fluid.mass.expr(&cell) + fluid.mass.expr(&opposite), 0.1),
+                    2.0,
+                );
+                *fluid.velocity.var(&edge) += -pressure * dir.signf() / face_mass;
             }
         }
     })
@@ -71,7 +83,7 @@ fn copy_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) 
                 0.0001,
             );
             if dir == GridDirection::Up {
-                *fluid.velocity.var(&edge) = fluid.next_momentum.expr(&edge) / weight - 0.001;
+                *fluid.velocity.var(&edge) = fluid.next_momentum.expr(&edge) / weight - 0.005;
             } else {
                 *fluid.velocity.var(&edge) = fluid.next_momentum.expr(&edge) / weight;
             }
@@ -174,7 +186,7 @@ fn load_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) 
 }
 
 fn update_fluids() -> impl AsNodes {
-    (0..5)
+    (0..1)
         .map(|_| {
             (
                 advect_kernel.dispatch(),
