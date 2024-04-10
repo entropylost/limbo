@@ -49,8 +49,8 @@ fn compute_velocity(
                 *normal += dir.as_vec_f32() * fluid.pressure.expr(&other);
             }
         }
-        let vel = -(normal + Vec2::new(0.0, -0.1)).normalize();
-        *fluid.velocity.var(&cell) = vel + fluid.velocity.expr(&cell) * 0.0001;
+        let vel = (-normal + Vec2::new(0.0, -0.1)).normalize();
+        *fluid.velocity.var(&cell) = vel + fluid.velocity.expr(&cell) * 0.5;
         *fluid.pressure.var(&cell) += 0.01;
     })
 }
@@ -268,18 +268,18 @@ fn update_fluids(
     *parity ^= true;
     let mv = if *parity {
         (
-            move_x_kernel.dispatch(),
+            move_x_single_kernel.dispatch(),
             copy_fluid_kernel.dispatch(),
-            // move_y_single_kernel.dispatch(),
-            // copy_fluid_kernel.dispatch(),
+            move_y_single_kernel.dispatch(),
+            copy_fluid_kernel.dispatch(),
         )
             .chain()
     } else {
         (
-            move_y_kernel.dispatch(),
+            move_y_single_kernel.dispatch(),
             copy_fluid_kernel.dispatch(),
-            // move_x_single_kernel.dispatch(),
-            // copy_fluid_kernel.dispatch(),
+            move_x_single_kernel.dispatch(),
+            copy_fluid_kernel.dispatch(),
         )
             .chain()
     };
