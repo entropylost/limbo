@@ -1,6 +1,7 @@
 use sefirot::mapping::buffer::StaticDomain;
 use sefirot_grid::dual::Facing;
 
+use super::direction::Direction;
 use crate::prelude::*;
 use crate::ui::debug::DebugCursor;
 
@@ -19,6 +20,7 @@ pub struct FluidFields {
     pub velocity: VField<Vec2<f32>, Cell>,
     pub next_velocity: VField<Vec2<f32>, Cell>,
     pub solid: VField<bool, Cell>,
+    pub pressure: VField<f32, Cell>,
     _fields: FieldSet,
 }
 
@@ -38,9 +40,35 @@ fn setup_fluids(mut commands: Commands, device: Res<Device>, world: Res<World>) 
         velocity: *fields.create_bind("fluid-velocity", world.create_buffer(&device)),
         next_velocity: *fields.create_bind("fluid-next-velocity", world.create_buffer(&device)),
         solid: *fields.create_bind("fluid-solid", world.create_buffer(&device)),
+        pressure: *fields.create_bind("fluid-pressure", world.create_buffer(&device)),
         _fields: fields,
     };
     commands.insert_resource(fluid);
+}
+
+#[kernel]
+fn compute_velocity(
+    device: Res<Device>,
+    world: Res<World>,
+    fluid: Res<FluidFields>,
+) -> Kernel<fn()> {
+    Kernel::build(&device, &**world, &|cell| {
+        if fluid.ty.expr(&cell) == 0 {
+            *fluid.pressure.var(&cell) *= 0.99;
+            return;
+        }
+        let normal = Vec2::<f32>::var_zeroed();
+        for dir in Direction::iter_all() {
+            let other = cell.at(*cell + dir.as_vec());
+
+            if fluid.ty.expr(&other) != 0 {
+                *normal += dir.as_vec_f32() * fluid.pressure.expr(&other);
+            }
+        }
+        let vel = (-normal + Vec2::new(0.0, -0.1)).normalize();
+        *fluid.velocity.var(&cell) = vel + fluid.velocity.expr(&cell) * 0.5;
+        *fluid.pressure.var(&cell) += 0.01;
+    })
 }
 
 #[kernel]
@@ -54,14 +82,14 @@ fn extract_edges(
         if fluid.ty.expr(&cell) == 0 {
             return;
         }
-        for dir in GridDirection::iter_all() {
-            let edge = world.dual.in_dir(&cell, dir);
-            let opposite = world.in_dir(&cell, dir);
-            if fluid.ty.expr(&opposite) == 0 && !fluid.solid.expr(&opposite) {
-                *flow.velocity.var(&edge) =
-                    Facing::from(dir).extract(fluid.velocity.expr(&cell).round());
-            }
-        }
+        // for dir in GridDirection::iter_all() {
+        //     let edge = world.dual.in_dir(&cell, dir);
+        //     let opposite = world.in_dir(&cell, dir);
+        //     if fluid.ty.expr(&opposite) == 0 && !fluid.solid.expr(&opposite) {
+        //         *flow.velocity.var(&edge) =
+        //             Facing::from(dir).extract(fluid.velocity.expr(&cell).round());
+        //     }
+        // }
         *flow.mass.var(&cell) += 0.01;
     })
 }
@@ -263,17 +291,17 @@ fn move_dir(fluid: &FluidFields, col: Element<Expr<u32>>, facing: Facing, single
         }
     };
     // TODO: Can use union-find to find the nearest unoccupied cell.
-    let lock = <[u32; 256]>::var([0; 256]);
-    let vel = <[i32; 256]>::var([0; 256]);
+    let lock = <[u32; 512]>::var([0; 512]);
+    let vel = <[i32; 512]>::var([0; 512]);
     let reject_size = 0_u32.var();
-    let reject = <[u32; 256]>::var([0; 256]);
-    for i in 0..256_u32 {
+    let reject = <[u32; 512]>::var([0; 512]);
+    for i in 0..512_u32 {
         let i: Expr<u32> = i;
         if fluid.solid.expr(&grid_point(i.cast_i32())) {
             lock.write(i, 1);
         }
     }
-    for i in 0..256_u32 {
+    for i in 0..512_u32 {
         let i: Expr<u32> = i;
         let cell = grid_point(i.cast_i32());
         let ty = fluid.ty.expr(&cell);
@@ -281,10 +309,10 @@ fn move_dir(fluid: &FluidFields, col: Element<Expr<u32>>, facing: Facing, single
             continue;
         }
         let v = velocity(&cell);
-        let dst = (i.cast_i32() + v).rem_euclid(256).cast_u32();
+        let dst = (i.cast_i32() + v).rem_euclid(512).cast_u32();
         lock.write(dst, lock.read(dst) + 1);
     }
-    for i in 0..256_u32 {
+    for i in 0..512_u32 {
         let i: Expr<u32> = i;
         let cell = grid_point(i.cast_i32());
         let ty = fluid.ty.expr(&cell);
@@ -292,7 +320,7 @@ fn move_dir(fluid: &FluidFields, col: Element<Expr<u32>>, facing: Facing, single
             continue;
         }
         let v = velocity(&cell);
-        let dst = (i.cast_i32() + v).rem_euclid(256).cast_u32();
+        let dst = (i.cast_i32() + v).rem_euclid(512).cast_u32();
         if lock.read(dst) == 1 {
             vel.write(dst, (dst - i).cast_i32());
         } else {
@@ -312,7 +340,7 @@ fn move_dir(fluid: &FluidFields, col: Element<Expr<u32>>, facing: Facing, single
             *reject_size += 1;
         }
     }
-    for i in 0..256_u32 {
+    for i in 0..512_u32 {
         let i: Expr<u32> = i;
         let cell = grid_point(i.cast_i32());
         let v = vel.read(i);
@@ -443,24 +471,31 @@ fn update_fluids(
     *parity ^= true;
     let mv = if *parity {
         (
-            // move_x_kernel.dispatch(),
-            // copy_fluid_kernel.dispatch(),
+            move_x_single_kernel.dispatch(),
+            copy_fluid_kernel.dispatch(),
             move_y_single_kernel.dispatch(),
             copy_fluid_kernel.dispatch(),
         )
             .chain()
     } else {
         (
-            // move_y_kernel.dispatch(),
-            // copy_fluid_kernel.dispatch(),
+            move_y_single_kernel.dispatch(),
+            copy_fluid_kernel.dispatch(),
             move_x_single_kernel.dispatch(),
             copy_fluid_kernel.dispatch(),
         )
             .chain()
     };
+    let mv2 = if *parity {
+        (move_x_kernel.dispatch(), copy_fluid_kernel.dispatch()).chain()
+    } else {
+        (move_y_kernel.dispatch(), copy_fluid_kernel.dispatch()).chain()
+    };
     (
-        extract_edges.dispatch(),
+        compute_velocity.dispatch(),
         mv,
+        extract_edges.dispatch(),
+        mv2,
         (
             advect_kernel.dispatch(),
             copy_flow_kernel.dispatch(),
@@ -497,6 +532,7 @@ impl Plugin for FluidPlugin {
                     init_advect_kernel,
                     init_clear_kernel,
                     init_paint_kernel,
+                    init_compute_velocity,
                     init_divergence_kernel,
                 ),
             )

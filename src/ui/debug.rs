@@ -104,6 +104,7 @@ impl FromWorld for DebugUiState {
             debug_fields.push(("X Velocity", x_vel.id()));
             debug_fields.push(("Y Velocity", y_vel.id()));
             debug_fields.push(("Fluid Walls", fluid.solid.id()));
+            debug_fields.push(("Fluid Pressure", fluid.pressure.id()));
         }
         if let Some(flow) = world.get_resource::<FlowFields>() {
             debug_fields.push(("Flow Mass", flow.mass.id()));
