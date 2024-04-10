@@ -20,8 +20,8 @@ pub struct FluidFields {
     pub velocity: VField<Vec2<f32>, Cell>,
     pub next_velocity: VField<Vec2<f32>, Cell>,
     pub solid: VField<bool, Cell>,
-    pub adv_velocity: VField<Vec2<f32>, Cell>,
-    pub next_adv_velocity: VField<Vec2<f32>, Cell>,
+    pub adv_momentum: VField<Vec2<f32>, Cell>,
+    pub next_adv_momentum: VField<Vec2<f32>, Cell>,
     _fields: FieldSet,
 }
 
@@ -41,8 +41,8 @@ fn setup_fluids(mut commands: Commands, device: Res<Device>, world: Res<World>) 
         velocity: *fields.create_bind("fluid-velocity", world.create_buffer(&device)),
         next_velocity: *fields.create_bind("fluid-next-velocity", world.create_buffer(&device)),
         solid: *fields.create_bind("fluid-solid", world.create_buffer(&device)),
-        adv_velocity: *fields.create_bind("fluid-adv-velocity", world.create_buffer(&device)),
-        next_adv_velocity: *fields
+        adv_momentum: *fields.create_bind("fluid-adv-velocity", world.create_buffer(&device)),
+        next_adv_momentum: *fields
             .create_bind("fluid-next-adv-velocity", world.create_buffer(&device)),
         _fields: fields,
     };
@@ -58,18 +58,19 @@ fn reflect_averaged(
     Kernel::build(&device, &**world, &|cell| {
         if fluid.ty.expr(&cell) != 0 {
             let adj = 1_u32.var();
-            let avg_vel = fluid.adv_velocity.expr(&cell).var();
+            // let avg_vel = fluid.adv_momentum.expr(&cell).var();
             for dir in Direction::iter_all() {
                 let opposite = cell.at(*cell + dir.as_vec());
                 if fluid.ty.expr(&opposite) != 0 {
                     *adj += 1;
-                    *avg_vel += fluid.adv_velocity.expr(&opposite);
+                    // *avg_vel += fluid.adv_momentum.expr(&opposite);
                 }
             }
             // TODO: Adjust by density.
-            *fluid.velocity.var(&cell) = fluid.adv_velocity.expr(&cell) * 1.2; //
-            avg_vel / adj.cast_f32(); // * 3.0;
-                                      // 9.0 / adj.cast_f32();
+            *fluid.velocity.var(&cell) = fluid.adv_momentum.expr(&cell) / adj.cast_f32();
+            //
+            // avg_vel / adj.cast_f32(); // * 3.0;
+            // 9.0 / adj.cast_f32();
         }
     })
 }
@@ -85,13 +86,13 @@ fn blur_averaged(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>
         for dir in GridDirection::iter_all() {
             let opposite = world.in_dir(&cell, dir);
             if fluid.ty.expr(&opposite) != 0 {
-                *adj_sum += fluid.next_adv_velocity.expr(&opposite);
+                *adj_sum += fluid.next_adv_momentum.expr(&opposite);
                 *adj_count += 1;
             }
         }
         let adj_pct = adj_count.cast_f32() / 8.0;
-        *fluid.adv_velocity.var(&cell) =
-            fluid.next_adv_velocity.expr(&cell) * (1.0 - adj_pct) + adj_sum / 8.0;
+        *fluid.adv_momentum.var(&cell) =
+            fluid.next_adv_momentum.expr(&cell) * (1.0 - adj_pct) + adj_sum / 8.0;
     })
 }
 
@@ -182,11 +183,11 @@ fn copy_fluid_kernel(
     Kernel::build(&device, &**world, &|cell| {
         *fluid.ty.var(&cell) = fluid.next_ty.expr(&cell);
         *fluid.velocity.var(&cell) = fluid.next_velocity.expr(&cell);
-        *fluid.adv_velocity.var(&cell) = fluid.next_adv_velocity.expr(&cell);
+        *fluid.adv_momentum.var(&cell) = fluid.next_adv_momentum.expr(&cell);
         *fluid.next_ty.var(&cell) = 0;
         // Doesn't need to be set actually.
         *fluid.next_velocity.var(&cell) = Vec2::splat(0.0);
-        *fluid.next_adv_velocity.var(&cell) = Vec2::splat(0.0);
+        *fluid.next_adv_momentum.var(&cell) = Vec2::splat(0.0);
     })
 }
 
@@ -378,11 +379,18 @@ fn move_dir(fluid: &FluidFields, col: Element<Expr<u32>>, facing: Facing, single
 
         *fluid.next_ty.var(&cell) = fluid.ty.expr(&src);
         *fluid.next_velocity.var(&cell) = fluid.velocity.expr(&src);
-        if single {
-            *fluid.next_adv_velocity.var(&cell) =
-                fluid.adv_velocity.expr(&src) * 0.99 + 0.01 * v.cast_f32() * (!facing).as_vec_f32();
+        if single && v != 0 {
+            let adj = 1_u32.var();
+            for dir in Direction::iter_all() {
+                let opposite = src.at(*src + dir.as_vec());
+                if fluid.ty.expr(&opposite) != 0 {
+                    *adj += 1;
+                }
+            }
+            *fluid.next_adv_momentum.var(&cell) = fluid.adv_momentum.expr(&src) * 0.99
+                + 0.01 * v.cast_f32() * (!facing).as_vec_f32() * adj.cast_f32();
         } else {
-            *fluid.next_adv_velocity.var(&cell) = fluid.adv_velocity.expr(&src);
+            *fluid.next_adv_momentum.var(&cell) = fluid.adv_momentum.expr(&src);
         }
     }
 }

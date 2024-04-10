@@ -101,18 +101,18 @@ impl FromWorld for DebugUiState {
             );
             let x_adv_vel = fields.create_bind(
                 "debug-fluid-x-adv-vel",
-                fluid.adv_velocity.map(track_nc!(|v| v.x.abs())),
+                fluid.adv_momentum.map(track_nc!(|v| v.x.abs())),
             );
             let y_adv_vel = fields.create_bind(
                 "debug-fluid-y-adv-vel",
-                fluid.adv_velocity.map(track_nc!(|v| v.y.abs())),
+                fluid.adv_momentum.map(track_nc!(|v| v.y.abs())),
             );
             debug_fields.push(("Type", ty.id()));
             debug_fields.push(("Velocity", fluid.velocity.id()));
             debug_fields.push(("X Velocity", x_vel.id()));
             debug_fields.push(("Y Velocity", y_vel.id()));
             debug_fields.push(("Fluid Walls", fluid.solid.id()));
-            debug_fields.push(("Advected Velocity", fluid.adv_velocity.id()));
+            debug_fields.push(("Advected Velocity", fluid.adv_momentum.id()));
             debug_fields.push(("Advected X Velocity", x_adv_vel.id()));
             debug_fields.push(("Advected Y Velocity", y_adv_vel.id()));
         }
