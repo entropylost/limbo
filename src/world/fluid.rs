@@ -1,7 +1,6 @@
 use sefirot::mapping::buffer::StaticDomain;
 use sefirot_grid::dual::Facing;
 
-use super::direction::Direction;
 use crate::prelude::*;
 use crate::ui::debug::DebugCursor;
 
@@ -10,7 +9,6 @@ pub struct FlowFields {
     pub mass: VField<f32, Cell>,
     pub next_mass: AField<f32, Cell>,
     pub velocity: VField<f32, Edge>,
-    pub last_velocity: VField<f32, Edge>,
     pub next_momentum: AField<f32, Edge>,
 }
 
@@ -21,7 +19,10 @@ pub struct FluidFields {
     pub velocity: VField<Vec2<f32>, Cell>,
     pub next_velocity: VField<Vec2<f32>, Cell>,
     pub solid: VField<bool, Cell>,
-    pub pressure: VField<f32, Cell>,
+    pub avg_momentum: VField<Vec2<f32>, Cell>,
+    pub avg_mass: VField<f32, Cell>,
+    pub adv_velocity: VField<Vec2<f32>, Cell>,
+    pub next_adv_velocity: VField<Vec2<f32>, Cell>,
     _fields: FieldSet,
 }
 
@@ -31,8 +32,6 @@ fn setup_fluids(mut commands: Commands, device: Res<Device>, world: Res<World>) 
         mass: fields.create_bind("fluid-mass", world.create_texture(&device)),
         next_mass: fields.create_bind("fluid-next-mass", world.create_buffer(&device)),
         velocity: fields.create_bind("fluid-velocity", world.dual.create_texture(&device)),
-        last_velocity: fields
-            .create_bind("fluid-last-velocity", world.dual.create_texture(&device)),
         next_momentum: fields.create_bind("fluid-next-momentum", world.dual.create_buffer(&device)),
     };
     commands.insert_resource(flow);
@@ -43,38 +42,34 @@ fn setup_fluids(mut commands: Commands, device: Res<Device>, world: Res<World>) 
         velocity: *fields.create_bind("fluid-velocity", world.create_buffer(&device)),
         next_velocity: *fields.create_bind("fluid-next-velocity", world.create_buffer(&device)),
         solid: *fields.create_bind("fluid-solid", world.create_buffer(&device)),
-        pressure: *fields.create_bind("fluid-pressure", world.create_buffer(&device)),
+        avg_momentum: *fields.create_bind("fluid-avg-velocity", world.create_buffer(&device)),
+        avg_mass: *fields.create_bind("fluid-avg-mass", world.create_buffer(&device)),
+        adv_velocity: *fields.create_bind("fluid-adv-velocity", world.create_buffer(&device)),
+        next_adv_velocity: *fields
+            .create_bind("fluid-next-adv-velocity", world.create_buffer(&device)),
         _fields: fields,
     };
     commands.insert_resource(fluid);
 }
 
 #[kernel]
-fn compute_velocity(
+fn reflect_averaged(
     device: Res<Device>,
     world: Res<World>,
     fluid: Res<FluidFields>,
 ) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|cell| {
-        if fluid.ty.expr(&cell) == 0 {
-            *fluid.pressure.var(&cell) *= 0.99;
-            return;
+        if fluid.ty.expr(&cell) != 0 {
+            *fluid.velocity.var(&cell) = fluid.adv_velocity.expr(&cell);
+            *fluid.adv_velocity.var(&cell) =
+                fluid.avg_momentum.expr(&cell) * 0.01 * fluid.avg_mass.expr(&cell)
+                    + fluid.adv_velocity.expr(&cell) * (1.0 - 0.01 * fluid.avg_mass.expr(&cell));
         }
-        let normal = Vec2::<f32>::var_zeroed();
-        for dir in Direction::iter_all() {
-            let other = cell.at(*cell + dir.as_vec());
-
-            if fluid.ty.expr(&other) != 0 {
-                *normal += dir.as_vec_f32() * fluid.pressure.expr(&other);
-            }
+        *fluid.avg_momentum.var(&cell) *= 0.99; // normalize()
+        *fluid.avg_mass.var(&cell) *= 0.99;
+        if fluid.ty.expr(&cell) != 0 {
+            *fluid.avg_mass.var(&cell) += 0.01;
         }
-        if (normal == Vec2::splat(0.0)).all() {
-            *fluid.velocity.var(&cell) = Vec2::splat(0.0);
-        } else {
-            let vel = (-normal).normalize();
-            *fluid.velocity.var(&cell) = vel;
-        }
-        *fluid.pressure.var(&cell) += 0.01;
     })
 }
 
@@ -89,15 +84,15 @@ fn extract_edges(
         if fluid.ty.expr(&cell) == 0 {
             return;
         }
-        // for dir in GridDirection::iter_all() {
-        //     let edge = world.dual.in_dir(&cell, dir);
-        //     let opposite = world.in_dir(&cell, dir);
-        //     if fluid.ty.expr(&opposite) == 0 && !fluid.solid.expr(&opposite) {
-        //         *flow.velocity.var(&edge) =
-        //             Facing::from(dir).extract(fluid.velocity.expr(&cell).round());
-        //     }
-        // }
-        *flow.mass.var(&cell) = 1.0;
+        for dir in GridDirection::iter_all() {
+            let edge = world.dual.in_dir(&cell, dir);
+            let opposite = world.in_dir(&cell, dir);
+            if fluid.ty.expr(&opposite) == 0 && !fluid.solid.expr(&opposite) {
+                *flow.velocity.var(&edge) =
+                    Facing::from(dir).extract(fluid.velocity.expr(&cell).round());
+            }
+        }
+        *flow.mass.var(&cell) += 0.01;
     })
 }
 
@@ -109,27 +104,17 @@ fn extract_cells(
     flow: Res<FlowFields>,
 ) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|cell| {
-        if fluid.ty.expr(&cell) == 0 {
-            return;
-        }
         let vel = Vec2::<f32>::var_zeroed();
         for dir in GridDirection::iter_all() {
             let edge = world.dual.in_dir(&cell, dir);
-            *vel += (flow.velocity.expr(&edge)) * Facing::from(dir).as_vec_f32();
+            *vel += flow.velocity.expr(&edge) * Facing::from(dir).as_vec_f32();
         }
-        *fluid.velocity.var(&cell) = vel / 2.0 * 5.0;
-    })
-}
-#[kernel]
-fn copy_last(device: Res<Device>, world: Res<World>, flow: Res<FlowFields>) -> Kernel<fn()> {
-    Kernel::build(&device, &**world, &|cell| {
-        for dir in [GridDirection::Right, GridDirection::Up] {
-            let edge = world.dual.in_dir(&cell, dir);
-            *flow.last_velocity.var(&edge) = flow.velocity.expr(&edge);
+        *vel /= 2.0;
+        if fluid.ty.expr(&cell) != 0 {
+            *fluid.velocity.var(&cell) = vel;
         }
     })
 }
-
 #[kernel]
 fn divergence_kernel(
     device: Res<Device>,
@@ -175,8 +160,11 @@ fn copy_fluid_kernel(
     Kernel::build(&device, &**world, &|cell| {
         *fluid.ty.var(&cell) = fluid.next_ty.expr(&cell);
         *fluid.velocity.var(&cell) = fluid.next_velocity.expr(&cell);
+        *fluid.adv_velocity.var(&cell) = fluid.next_adv_velocity.expr(&cell);
         *fluid.next_ty.var(&cell) = 0;
+        // Doesn't need to be set actually.
         *fluid.next_velocity.var(&cell) = Vec2::splat(0.0);
+        *fluid.next_adv_velocity.var(&cell) = Vec2::splat(0.0);
     })
 }
 
@@ -295,28 +283,15 @@ fn move_dir(fluid: &FluidFields, col: Element<Expr<u32>>, facing: Facing, single
         Facing::Vertical => col.at(Vec2::expr(col.cast_i32(), x)),
     };
     let velocity = |cell: &Element<Expr<Vec2<i32>>>| {
-        let v = fluid.velocity.expr(cell);
         if single {
             match facing {
-                Facing::Horizontal => {
-                    if v.x.abs() > 0.01 {
-                        v.x.signum().cast_i32()
-                    } else {
-                        0_i32.expr()
-                    }
-                }
-                Facing::Vertical => {
-                    if v.y.abs() > 0.01 {
-                        v.y.signum().cast_i32()
-                    } else {
-                        0_i32.expr()
-                    }
-                }
+                Facing::Horizontal => fluid.velocity.expr(cell).x.signum().cast_i32(),
+                Facing::Vertical => fluid.velocity.expr(cell).y.signum().cast_i32(),
             }
         } else {
             match facing {
-                Facing::Horizontal => v.x.round().cast_i32(),
-                Facing::Vertical => v.y.round().cast_i32(),
+                Facing::Horizontal => fluid.velocity.expr(cell).x.round().cast_i32(),
+                Facing::Vertical => fluid.velocity.expr(cell).y.round().cast_i32(),
             }
         }
     };
@@ -378,8 +353,12 @@ fn move_dir(fluid: &FluidFields, col: Element<Expr<u32>>, facing: Facing, single
         if lock.read(i) != 1 {
             continue;
         }
+        if single && v != 0 {
+            *fluid.avg_momentum.var(&cell) += 0.1 * v.cast_f32() * (!facing).as_vec_f32();
+        }
         *fluid.next_ty.var(&cell) = fluid.ty.expr(&src);
         *fluid.next_velocity.var(&cell) = fluid.velocity.expr(&src);
+        *fluid.next_adv_velocity.var(&cell) = fluid.adv_velocity.expr(&src);
     }
 }
 #[kernel]
@@ -501,30 +480,27 @@ fn update_fluids(
     *parity ^= true;
     let mv = if *parity {
         (
-            move_x_single_kernel.dispatch(),
-            copy_fluid_kernel.dispatch(),
             move_y_single_kernel.dispatch(),
             copy_fluid_kernel.dispatch(),
         )
             .chain()
     } else {
         (
-            move_y_single_kernel.dispatch(),
-            copy_fluid_kernel.dispatch(),
             move_x_single_kernel.dispatch(),
             copy_fluid_kernel.dispatch(),
         )
             .chain()
     };
-    let mv2 = if *parity {
-        (move_x_kernel.dispatch(), copy_fluid_kernel.dispatch()).chain()
-    } else {
-        (move_y_kernel.dispatch(), copy_fluid_kernel.dispatch()).chain()
-    };
     (
-        compute_velocity.dispatch(),
-        mv,
         extract_edges.dispatch(),
+        mv,
+        reflect_averaged.dispatch(),
+        (
+            move_x_kernel.dispatch(),
+            copy_fluid_kernel.dispatch(),
+            move_y_kernel.dispatch(),
+            copy_fluid_kernel.dispatch(),
+        ),
         (
             advect_kernel.dispatch(),
             copy_flow_kernel.dispatch(),
@@ -535,8 +511,6 @@ fn update_fluids(
         )
             .chain(),
         extract_cells.dispatch(),
-        mv2,
-        copy_last.dispatch(),
     )
         .chain()
 }
@@ -563,9 +537,8 @@ impl Plugin for FluidPlugin {
                     init_advect_kernel,
                     init_clear_kernel,
                     init_paint_kernel,
-                    init_compute_velocity,
+                    init_reflect_averaged,
                     init_divergence_kernel,
-                    init_copy_last,
                 ),
             )
             .add_systems(WorldInit, add_init(load))

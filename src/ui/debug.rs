@@ -99,12 +99,34 @@ impl FromWorld for DebugUiState {
                 "debug-fluid-y-vel",
                 fluid.velocity.map(track_nc!(|v| v.y.abs())),
             );
+            let x_avg_vel = fields.create_bind(
+                "debug-fluid-x-avg-vel",
+                fluid.avg_momentum.map(track_nc!(|v| v.x.abs())),
+            );
+            let y_avg_vel = fields.create_bind(
+                "debug-fluid-y-avg-vel",
+                fluid.avg_momentum.map(track_nc!(|v| v.y.abs())),
+            );
+            let x_adv_vel = fields.create_bind(
+                "debug-fluid-x-adv-vel",
+                fluid.adv_velocity.map(track_nc!(|v| v.x.abs())),
+            );
+            let y_adv_vel = fields.create_bind(
+                "debug-fluid-y-adv-vel",
+                fluid.adv_velocity.map(track_nc!(|v| v.y.abs())),
+            );
             debug_fields.push(("Type", ty.id()));
             debug_fields.push(("Velocity", fluid.velocity.id()));
             debug_fields.push(("X Velocity", x_vel.id()));
             debug_fields.push(("Y Velocity", y_vel.id()));
             debug_fields.push(("Fluid Walls", fluid.solid.id()));
-            debug_fields.push(("Fluid Pressure", fluid.pressure.id()));
+            debug_fields.push(("Avg Velocity", fluid.avg_momentum.id()));
+            debug_fields.push(("Avg X Velocity", x_avg_vel.id()));
+            debug_fields.push(("Avg Y Velocity", y_avg_vel.id()));
+            debug_fields.push(("Advected Velocity", fluid.adv_velocity.id()));
+            debug_fields.push(("Advected X Velocity", x_adv_vel.id()));
+            debug_fields.push(("Advected Y Velocity", y_adv_vel.id()));
+            debug_fields.push(("Avg mass", fluid.avg_mass.id()));
         }
         if let Some(flow) = world.get_resource::<FlowFields>() {
             debug_fields.push(("Flow Mass", flow.mass.id()));
