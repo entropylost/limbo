@@ -443,16 +443,16 @@ fn update_fluids(
     *parity ^= true;
     let mv = if *parity {
         (
-            move_x_kernel.dispatch(),
-            copy_fluid_kernel.dispatch(),
+            // move_x_kernel.dispatch(),
+            // copy_fluid_kernel.dispatch(),
             move_y_single_kernel.dispatch(),
             copy_fluid_kernel.dispatch(),
         )
             .chain()
     } else {
         (
-            move_y_kernel.dispatch(),
-            copy_fluid_kernel.dispatch(),
+            // move_y_kernel.dispatch(),
+            // copy_fluid_kernel.dispatch(),
             move_x_single_kernel.dispatch(),
             copy_fluid_kernel.dispatch(),
         )
