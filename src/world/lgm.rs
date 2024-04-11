@@ -47,7 +47,6 @@ fn setup_lgm(mut commands: Commands, device: Res<Device>, world: Res<World>) {
 fn update_kernel(device: Res<Device>, lgm: Res<LgmFields>) -> Kernel<fn()> {
     Kernel::build(&device, &lgm.domain, &|ix| {
         set_block_size([64, 1, 1]);
-        let byte_rev = from_fn::<_, 256, _>(|i| (i as u8).reverse_bits() as u32).expr();
         let swap = Shared::<u64>::new(64);
 
         let transpose = |mut x: Expr<u64>| -> Expr<u64> {
@@ -106,9 +105,12 @@ fn update_kernel(device: Res<Device>, lgm: Res<LgmFields>) -> Kernel<fn()> {
 
 #[kernel(run)]
 fn load_kernel(device: Res<Device>, lgm: Res<LgmFields>) -> Kernel<fn()> {
-    Kernel::build(&device, &StaticDomain::<0>::new(), &|ix| {
-        *lgm.dirs[0].var(&ix.at(10_u32.expr())) = 1_u64 << (32 - 10);
-        *lgm.dirs[2].var(&ix.at(10_u32.expr())) = 1_u64 << (32 + 10);
+    Kernel::build(&device, &StaticDomain::<1>::new(32), &|ix| {
+        let x = *ix + 16;
+        let r = 0..4;
+        for i in r {
+            *lgm.dirs[i].var(&ix.at(x)) = ((1_u64 << 32) - 1_u64) << 16;
+        }
     })
 }
 
