@@ -49,6 +49,28 @@ fn update_kernel(device: Res<Device>, lgm: Res<LgmFields>) -> Kernel<fn()> {
         set_block_size([64, 1, 1]);
         let byte_rev = from_fn::<_, 256, _>(|i| (i as u8).reverse_bits() as u32).expr();
         let swap = Shared::<u64>::new(64);
+
+        let transpose = |mut x: Expr<u64>| -> Expr<u64> {
+            let masks: [u64; 6] = [
+                0x5555555555555555,
+                0x3333333333333333,
+                0x0F0F0F0F0F0F0F0F,
+                0x00FF00FF00FF00FF,
+                0x0000FFFF0000FFFF,
+                0x00000000FFFFFFFF,
+            ];
+            for (i, mask) in masks.into_iter().enumerate() {
+                let ix = ix.cast_u64();
+                let pow = 1_u64 << i;
+                let lvl = ix & pow; // 0 if the flipped block is on the "right".
+                swap.write(ix, (x >> (lvl ^ pow)) & mask);
+                sync_block();
+                let y = swap.read(ix ^ pow);
+                x = (x & (mask << lvl)) | (y << (lvl ^ pow));
+            }
+            x
+        };
+
         let dirs = lgm.dirs.map(|dir| dir.var(&ix));
         let walls = lgm.walls.map(|wall| wall.expr(&ix));
         *dirs[0] <<= 1;
@@ -61,30 +83,19 @@ fn update_kernel(device: Res<Device>, lgm: Res<LgmFields>) -> Kernel<fn()> {
         *dirs[1] ^= yf;
         *dirs[2] ^= xf;
         *dirs[3] ^= yf;
-        let xo = dirs[0] & dirs[2];
-        let yo = dirs[1] & dirs[3];
+        let xe = !(dirs[0] | dirs[2]);
+        let ye = !(dirs[1] | dirs[3]);
+        let xe2 = transpose(xe);
+        let ye2 = transpose(ye);
+
+        let xo = dirs[0] & dirs[2] & ye2;
+        let yo = dirs[1] & dirs[3] & xe2;
         *dirs[0] ^= xo;
         *dirs[1] ^= yo;
         *dirs[2] ^= xo;
         *dirs[3] ^= yo;
-        // Begin transpose
-        swap.write(*ix, xo);
-        sync_block();
-        let xoi = swap.read(63 - *ix);
-        let mut xo2 = 0u64.expr();
-        let r = 0..8u64;
-        for i in r {
-            xo2 = xo2 | (byte_rev.read((xoi >> (i * 8)) & 0xFF).cast_u64() << (i * 8));
-        }
-
-        swap.write(*ix, yo);
-        sync_block();
-        let yoi = swap.read(63 - *ix);
-        let mut yo2 = 0u64.expr();
-        let r = 0..8u64;
-        for i in r {
-            yo2 = yo2 | (byte_rev.read((yoi >> (i * 8)) & 0xFF).cast_u64() << (i * 8));
-        }
+        let xo2 = transpose(xo);
+        let yo2 = transpose(yo);
 
         *dirs[0] ^= yo2;
         *dirs[1] ^= xo2;
@@ -95,12 +106,9 @@ fn update_kernel(device: Res<Device>, lgm: Res<LgmFields>) -> Kernel<fn()> {
 
 #[kernel(run)]
 fn load_kernel(device: Res<Device>, lgm: Res<LgmFields>) -> Kernel<fn()> {
-    Kernel::build(&device, &StaticDomain::<1>::new(32), &|ix| {
-        let x = *ix + 16;
-        let r = 0..4;
-        for i in r {
-            *lgm.dirs[i].var(&ix.at(x)) = ((1_u64 << 32) - 1_u64) << 16;
-        }
+    Kernel::build(&device, &StaticDomain::<0>::new(), &|ix| {
+        *lgm.dirs[0].var(&ix.at(10_u32.expr())) = 1_u64 << (32 - 10);
+        *lgm.dirs[2].var(&ix.at(10_u32.expr())) = 1_u64 << (32 + 10);
     })
 }
 
@@ -108,12 +116,12 @@ fn load_kernel(device: Res<Device>, lgm: Res<LgmFields>) -> Kernel<fn()> {
 fn render_kernel(device: Res<Device>, world: Res<World>, lgm: Res<LgmFields>) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|cell| {
         let pos = cell.cast_u32() % 64;
-        *lgm.rendered.var(&cell) = (lgm.walls[0].expr(&cell.at(pos.x)) & (1 << pos.y.cast_u64())
+        *lgm.rendered.var(&cell) = (lgm.walls[0].expr(&cell.at(pos.y)) & (1 << pos.x.cast_u64())
             != 0)
-            || (lgm.dirs[0].expr(&cell.at(pos.x)) & (1 << pos.y.cast_u64()) != 0)
-            || (lgm.dirs[1].expr(&cell.at(pos.y)) & (1 << pos.x.cast_u64()) != 0)
-            || (lgm.dirs[2].expr(&cell.at(pos.x)) & (1 << pos.y.cast_u64()) != 0)
-            || (lgm.dirs[3].expr(&cell.at(pos.y)) & (1 << pos.x.cast_u64()) != 0);
+            || (lgm.dirs[0].expr(&cell.at(pos.y)) & (1 << pos.x.cast_u64()) != 0)
+            || (lgm.dirs[1].expr(&cell.at(pos.x)) & (1 << pos.y.cast_u64()) != 0)
+            || (lgm.dirs[2].expr(&cell.at(pos.y)) & (1 << pos.x.cast_u64()) != 0)
+            || (lgm.dirs[3].expr(&cell.at(pos.x)) & (1 << pos.y.cast_u64()) != 0);
     })
 }
 
