@@ -80,7 +80,7 @@ pub struct World {
 
 impl FromWorld for World {
     fn from_world(_world: &mut BevyWorld) -> Self {
-        let grid = GridDomain::new_wrapping([0, 0], [256, 256]).with_morton();
+        let grid = GridDomain::new_wrapping([0, 0], [1024, 1024]).with_morton();
         let dual = grid.dual();
         World { grid, dual }
     }
