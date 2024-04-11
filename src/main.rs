@@ -5,6 +5,7 @@ use bevy_sefirot::display::DisplayPlugin;
 use bevy_sefirot::prelude::*;
 use nalgebra::Vector2;
 use world::fluid::FluidPlugin;
+use world::lgm::LgmPlugin;
 
 use crate::render::agx::AgXTonemapPlugin;
 use crate::render::debug::DebugPlugin;
@@ -64,7 +65,7 @@ fn main() {
         })
         .add_plugins(DisplayPlugin::default())
         .add_plugins(WorldPlugin)
-        .add_plugins(FluidPlugin)
+        .add_plugins(LgmPlugin)
         .add_plugins(UiPlugin)
         .add_plugins(RenderPlugin::default())
         .add_plugins(AgXTonemapPlugin)

@@ -10,6 +10,7 @@ use crate::render::light::LightParameters;
 use crate::render::{RenderConstants, RenderFields, RenderParameters};
 use crate::world::fluid::FluidFields;
 use crate::world::impeller::ImpellerFields;
+use crate::world::lgm::LgmFields;
 use crate::world::physics::{CollisionFields, PhysicsFields, NULL_OBJECT};
 use crate::world::tiled_test::TiledTestFields;
 
@@ -105,6 +106,9 @@ impl FromWorld for DebugUiState {
             debug_fields.push(("Y Velocity", y_vel.id()));
             debug_fields.push(("Fluid Walls", fluid.solid.id()));
             debug_fields.push(("Fluid Pressure", fluid.pressure.id()));
+        }
+        if let Some(lgm) = world.get_resource::<LgmFields>() {
+            debug_fields.push(("Lgm", lgm.rendered.id()));
         }
         Self {
             activate_debug_render: false,
