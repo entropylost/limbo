@@ -3,7 +3,7 @@ use sefirot_grid::dual::Facing;
 
 use crate::prelude::*;
 use crate::ui::debug::DebugCursor;
-use crate::utils::rand;
+use crate::utils::{rand, rand_f32};
 
 #[derive(Resource)]
 pub struct FlowFields {
@@ -98,7 +98,8 @@ fn extract_cells(
         }
         *vel /= 2.0;
         if fluid.ty.expr(&cell) != 0 {
-            *fluid.velocity.var(&cell) = vel;
+            let f = min(flow.mass.expr(&cell), 1.0);
+            *fluid.velocity.var(&cell) = fluid.velocity.expr(&cell) * (1.0 - f) + vel * f;
         }
     })
 }
@@ -143,15 +144,19 @@ fn velocity_kernel(
     device: Res<Device>,
     world: Res<World>,
     fluid: Res<FluidFields>,
-) -> Kernel<fn(Vec2<f32>)> {
+) -> Kernel<fn(u32)> {
     // Might be worth splitting the positive and negative movements.
-    Kernel::build(&device, &**world, &|cell, vel_boundaries| {
+    Kernel::build(&device, &**world, &|cell, t| {
+        let cutoff = Vec2::expr(
+            rand_f32(cell.cast_u32(), t, 0),
+            rand_f32(cell.cast_u32(), t, 1),
+        );
         if fluid.ty.expr(&cell) != 0 {
-            let vel = fluid.velocity.expr(&cell);
+            let vel = fluid.velocity.expr(&cell) * 1.5;
             let ivel = vel.round().cast_i32();
             let fvel = vel - ivel.cast_f32();
             let fvel_sign = fvel.signum().cast_i32();
-            let mask = fvel.abs() * 2.0 > vel_boundaries;
+            let mask = fvel.abs() * 2.0 > cutoff;
             *fluid.delta.var(&cell) = ivel + mask.cast_i32() * fvel_sign;
         }
     })
@@ -184,6 +189,7 @@ fn average_velocity_kernel(
         if fluid.ty.expr(&cell) != 0 {
             *fluid.velocity.var(&cell) =
                 0.99 * fluid.velocity.expr(&cell) + 0.01 * fluid.delta.expr(&cell).cast_f32();
+            // + Vec2::new(0.0, -0.01);
         }
     })
 }
@@ -497,12 +503,18 @@ fn update_fluids(
             premove_kernel.dispatch(),
             move_y_kernel.dispatch(),
             copy_fluid_kernel.dispatch(),
+            premove_kernel.dispatch(),
+            move_x_kernel.dispatch(),
+            copy_fluid_kernel.dispatch(),
         )
             .chain()
     } else {
         (
             premove_kernel.dispatch(),
             move_x_kernel.dispatch(),
+            copy_fluid_kernel.dispatch(),
+            premove_kernel.dispatch(),
+            move_y_kernel.dispatch(),
             copy_fluid_kernel.dispatch(),
         )
             .chain()
@@ -512,6 +524,9 @@ fn update_fluids(
             premove_kernel.dispatch(),
             move_y_kernel.dispatch(),
             copy_fluid_kernel.dispatch(),
+            premove_kernel.dispatch(),
+            move_x_kernel.dispatch(),
+            copy_fluid_kernel.dispatch(),
         )
             .chain()
     } else {
@@ -519,15 +534,18 @@ fn update_fluids(
             premove_kernel.dispatch(),
             move_x_kernel.dispatch(),
             copy_fluid_kernel.dispatch(),
+            premove_kernel.dispatch(),
+            move_y_kernel.dispatch(),
+            copy_fluid_kernel.dispatch(),
         )
             .chain()
     };
     (
         brownian_motion_kernel.dispatch(&*t),
         mv1,
-        // average_velocity_kernel.dispatch(),
+        average_velocity_kernel.dispatch(),
         extract_edges.dispatch(),
-        velocity_kernel.dispatch(&Vec2::new(rand::random(), rand::random())),
+        velocity_kernel.dispatch(&*t),
         mv2,
         advect_kernel.dispatch(),
         copy_flow_kernel.dispatch(),
