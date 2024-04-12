@@ -16,7 +16,8 @@ pub struct LgmFields {
 
 fn setup_lgm(mut commands: Commands, device: Res<Device>, world: Res<World>) {
     let mut fields = FieldSet::new();
-    let domain = StaticDomain::<3>::new(32, 32, 64);
+    // TODO: This breaks when the size gets greater than 16 for some unknown reason.
+    let domain = StaticDomain::<3>::new(10, 10, 64);
     let lgm = LgmFields {
         domain,
         dirs: fields.create_bind("lgm-dirs", domain.create_tex3d(&device)),
@@ -106,8 +107,7 @@ fn update_kernel(device: Res<Device>, lgm: Res<LgmFields>) -> Kernel<fn()> {
             let dir2 = dir02.y.var();
             let dir3 = dir13.y.var();
 
-            let wall0 = 0_u64.expr();
-            (lgm.walls
+            let wall0 = (lgm.walls
                 .expr(&ix.at(Vec3::expr(ix.x - 1, xo, offset)))
                 .x
                 .cast_u64()
@@ -124,8 +124,7 @@ fn update_kernel(device: Res<Device>, lgm: Res<LgmFields>) -> Kernel<fn()> {
                     .x
                     .cast_u64()
                     << 48);
-            let wall1 = 0_u64.expr();
-            (lgm.walls
+            let wall1 = (lgm.walls
                 .expr(&ix.at(Vec3::expr(yo, ix.y - 1, offset)))
                 .y
                 .cast_u64()
@@ -143,7 +142,7 @@ fn update_kernel(device: Res<Device>, lgm: Res<LgmFields>) -> Kernel<fn()> {
                     .cast_u64()
                     << 48);
 
-            for _i in 0..1 {
+            for _i in 0..16 {
                 *dir0 <<= 1;
                 *dir1 <<= 1;
                 *dir2 >>= 1;
@@ -208,6 +207,7 @@ fn load_kernel(device: Res<Device>, lgm: Res<LgmFields>) -> Kernel<fn()> {
 fn copy_kernel(device: Res<Device>, lgm: Res<LgmFields>) -> Kernel<fn()> {
     Kernel::build(&device, &lgm.domain, &|ix| {
         *lgm.dirs.var(&ix) = lgm.next_dirs.expr(&ix);
+        *lgm.next_dirs.var(&ix) = Vec4::splat(0);
     })
 }
 
