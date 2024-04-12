@@ -76,8 +76,7 @@ fn extract_edges(
             let edge = world.dual.in_dir(&cell, dir);
             let opposite = world.in_dir(&cell, dir);
             if fluid.ty.expr(&opposite) == 0 && !fluid.solid.expr(&opposite) {
-                *flow.velocity.var(&edge) =
-                    Facing::from(dir).extract(fluid.velocity.expr(&cell).round());
+                *flow.velocity.var(&edge) = Facing::from(dir).extract(fluid.velocity.expr(&cell));
             }
         }
         *flow.mass.var(&cell) += 0.01;
@@ -148,11 +147,11 @@ fn velocity_kernel(
     // Might be worth splitting the positive and negative movements.
     Kernel::build(&device, &**world, &|cell, vel_boundaries| {
         if fluid.ty.expr(&cell) != 0 {
-            let vel = fluid.avg_velocity.expr(&cell);
+            let vel = fluid.velocity.expr(&cell);
             let ivel = vel.round().cast_i32();
             let fvel = vel - ivel.cast_f32();
             let fvel_sign = fvel.signum().cast_i32();
-            let mask = fvel.abs() > vel_boundaries;
+            let mask = fvel.abs() * 2.0 > vel_boundaries;
             *fluid.delta.var(&cell) = ivel + mask.cast_i32() * fvel_sign;
         }
     })
@@ -183,8 +182,8 @@ fn average_velocity_kernel(
 ) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|cell| {
         if fluid.ty.expr(&cell) != 0 {
-            *fluid.avg_velocity.var(&cell) =
-                0.99 * fluid.avg_velocity.expr(&cell) + 0.01 * fluid.delta.expr(&cell).cast_f32();
+            *fluid.velocity.var(&cell) =
+                0.99 * fluid.velocity.expr(&cell) + 0.01 * fluid.delta.expr(&cell).cast_f32();
         }
     })
 }
@@ -526,8 +525,16 @@ fn update_fluids(
     (
         brownian_motion_kernel.dispatch(&*t),
         mv1,
+        // average_velocity_kernel.dispatch(),
+        extract_edges.dispatch(),
         velocity_kernel.dispatch(&Vec2::new(rand::random(), rand::random())),
         mv2,
+        advect_kernel.dispatch(),
+        copy_flow_kernel.dispatch(),
+        clear_kernel.dispatch(),
+        divergence_kernel.dispatch(),
+        divergence_kernel.dispatch(),
+        extract_cells.dispatch(),
     )
         .chain()
 }
