@@ -48,7 +48,7 @@ fn divergence_kernel(
                     max(fluid.mass.expr(&cell) + fluid.mass.expr(&opposite), 0.1),
                     2.0,
                 );
-                *divergence += fluid.velocity.expr(&edge) * dir.signf(); // * face_mass;
+                *divergence += fluid.velocity.expr(&edge) * dir.signf() * face_mass;
                 *solids += 1;
                 *total_mass += face_mass;
             }
@@ -61,11 +61,11 @@ fn divergence_kernel(
             let opposite = world.in_dir(&cell, dir);
 
             if !fluid.solid.expr(&world.in_dir(&cell, dir)) {
-                // let face_mass = min(
-                //     max(fluid.mass.expr(&cell) + fluid.mass.expr(&opposite), 0.1),
-                //     2.0,
-                // );
-                *fluid.velocity.var(&edge) += -pressure * dir.signf(); // / face_mass;
+                let face_mass = min(
+                    max(fluid.mass.expr(&cell) + fluid.mass.expr(&opposite), 0.1),
+                    2.0,
+                );
+                *fluid.velocity.var(&edge) += -pressure * dir.signf() / face_mass;
             }
         }
     })
