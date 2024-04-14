@@ -1,5 +1,6 @@
 use sefirot::mapping::buffer::StaticDomain;
-use sefirot_grid::dual::Facing;
+use sefirot_grid::dual::{DualGrid, Facing};
+use sefirot_grid::GridDomain;
 
 use crate::prelude::*;
 use crate::ui::debug::DebugCursor;
@@ -7,10 +8,12 @@ use crate::utils::{rand, rand_f32};
 
 #[derive(Resource)]
 pub struct FlowFields {
+    domain: GridDomain,
+    dual: DualGrid,
     pub mass: VField<f32, Cell>,
-    pub next_mass: AField<f32, Cell>,
+    pub solid: VField<bool, Cell>,
+    pub last_velocity: VField<f32, Edge>,
     pub velocity: VField<f32, Edge>,
-    pub next_momentum: AField<f32, Edge>,
 }
 
 #[derive(Resource)]
@@ -29,11 +32,22 @@ pub struct FluidFields {
 
 fn setup_fluids(mut commands: Commands, device: Res<Device>, world: Res<World>) {
     let mut fields = FieldSet::new();
+    let domain = GridDomain::new_wrapping([0, 0], [256, 256]).with_morton(); // Needs to be pow 2, also uses 3x3 cells rn.
+    let dual = domain.dual();
+
+    let flow_mass = fields.create_bind("fluid-mass", domain.create_texture(&device));
+    let flow_solid = *fields.create_bind("fluid-solid", domain.create_buffer(&device));
+    let flow_last_velocity =
+        fields.create_bind("fluid-last-velocity", dual.create_texture(&device));
+    let flow_velocity = fields.create_bind("fluid-velocity", dual.create_texture(&device));
+
     let flow = FlowFields {
-        mass: fields.create_bind("fluid-mass", world.create_texture(&device)),
-        next_mass: fields.create_bind("fluid-next-mass", world.create_buffer(&device)),
-        velocity: fields.create_bind("fluid-velocity", world.dual.create_texture(&device)),
-        next_momentum: fields.create_bind("fluid-next-momentum", world.dual.create_buffer(&device)),
+        domain,
+        dual,
+        mass: flow_mass,
+        solid: flow_solid,
+        last_velocity: flow_last_velocity,
+        velocity: flow_velocity,
     };
     commands.insert_resource(flow);
 
@@ -61,59 +75,96 @@ fn premove_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields
     })
 }
 
+#[tracked]
+fn bifilter(offset: Expr<Vec2<f32>>) -> Expr<f32> {
+    max(1.0 - (offset / 3.0).abs(), 0.0).reduce_prod()
+}
+
 #[kernel]
-fn extract_edges(
-    device: Res<Device>,
-    world: Res<World>,
-    fluid: Res<FluidFields>,
-    flow: Res<FlowFields>,
-) -> Kernel<fn()> {
-    Kernel::build(&device, &**world, &|cell| {
-        if fluid.ty.expr(&cell) == 0 {
-            return;
-        }
-        for dir in GridDirection::iter_all() {
-            let edge = world.dual.in_dir(&cell, dir);
-            let opposite = world.in_dir(&cell, dir);
-            if fluid.ty.expr(&opposite) == 0 && !fluid.solid.expr(&opposite) {
-                *flow.velocity.var(&edge) = Facing::from(dir).extract(fluid.velocity.expr(&cell));
+fn p2g(device: Res<Device>, fluid: Res<FluidFields>, flow: Res<FlowFields>) -> Kernel<fn()> {
+    Kernel::build(&device, &flow.domain, &|cell| {
+        // let mass_pos = *cell * 3 + 1;
+        // let mass = 0.0_f32.var();
+        // for dx in -3..=3 {
+        //     for dy in -3..=3 {
+        //         let offset = Vec2::expr(dx, dy);
+        //         let pos = mass_pos + offset;
+        //         let pcell = cell.at(pos);
+        //         let offset = offset.cast_f32();
+        //         let weight = bifilter(offset);
+        //         if fluid.ty.expr(&pcell) != 0 {
+        //             *mass += weight;
+        //         }
+        //     }
+        // }
+        let xpos = (*cell * 3).cast_f32() + Vec2::expr(-0.5, 1.0);
+        let xvel = 0.0_f32.var();
+        // TODO: This shouldn't be necessary.
+        let xweight = 0.00001_f32.var();
+        // TODO: These are overly large.
+        for dx in -4..=4 {
+            for dy in -4..=4 {
+                let pos = xpos.cast_i32() + Vec2::expr(dx, dy);
+                let offset = pos.cast_f32() - xpos;
+                let pcell = cell.at(pos);
+                let weight = bifilter(offset);
+                if fluid.ty.expr(&pcell) != 0 {
+                    *xvel += fluid.velocity.expr(&pcell).x * weight;
+                    *xweight += weight;
+                }
             }
         }
-        *flow.mass.var(&cell) += 0.01;
+        let ypos = (*cell * 3).cast_f32() + Vec2::expr(-0.5, 1.0);
+        let yvel = 0.0_f32.var();
+        let yweight = 0.00001_f32.var();
+        // TODO: These are overly large.
+        for dx in -4..=4 {
+            for dy in -4..=4 {
+                let pos = ypos.cast_i32() + Vec2::expr(dx, dy);
+                let offset = pos.cast_f32() - ypos;
+                let pcell = cell.at(pos);
+                let weight = bifilter(offset);
+                if fluid.ty.expr(&pcell) != 0 {
+                    *yvel += fluid.velocity.expr(&pcell).y * weight;
+                    *yweight += weight;
+                }
+            }
+        }
+        *flow
+            .velocity
+            .var(&flow.dual.in_dir(&cell, GridDirection::Left)) = xvel / xweight;
+        *flow
+            .velocity
+            .var(&flow.dual.in_dir(&cell, GridDirection::Down)) = yvel / yweight;
+        let mass = 0.0_f32.var();
+        let solid = false.var();
+        for dx in 0..3 {
+            for dy in 0..3 {
+                let pcell = cell.at(*cell * 3 + Vec2::expr(dx, dy));
+                if fluid.ty.expr(&pcell) != 0 {
+                    *mass += 1.0;
+                }
+                if fluid.solid.expr(&pcell) {
+                    *solid = true;
+                }
+            }
+        }
+        // TODO: This isn't properly blurred so cannot be used for averaging. Is necessary to decide which grid cells to run though.
+        *flow.mass.var(&cell) = mass;
+        *flow.solid.var(&cell) = solid;
     })
 }
 
 #[kernel]
-fn extract_cells(
+fn divergence_solve(
     device: Res<Device>,
-    world: Res<World>,
     fluid: Res<FluidFields>,
     flow: Res<FlowFields>,
 ) -> Kernel<fn()> {
-    Kernel::build(&device, &**world, &|cell| {
-        let vel = Vec2::<f32>::var_zeroed();
-        for dir in GridDirection::iter_all() {
-            let edge = world.dual.in_dir(&cell, dir);
-            *vel += flow.velocity.expr(&edge) * Facing::from(dir).as_vec_f32();
-        }
-        *vel /= 2.0;
-        if fluid.ty.expr(&cell) != 0 {
-            let f = min(flow.mass.expr(&cell), 1.0);
-            *fluid.velocity.var(&cell) = fluid.velocity.expr(&cell) * (1.0 - f) + vel * f;
-        }
-    })
-}
-#[kernel]
-fn divergence_kernel(
-    device: Res<Device>,
-    world: Res<World>,
-    fluid: Res<FluidFields>,
-    flow: Res<FlowFields>,
-) -> Kernel<fn()> {
-    Kernel::build(&device, &world.checkerboard(), &|cell| {
-        if fluid.solid.expr(&cell) {
+    Kernel::build(&device, &flow.domain.checkerboard(), &|cell| {
+        if flow.mass.expr(&cell) == 0.0 || flow.solid.expr(&cell) {
             for dir in GridDirection::iter_all() {
-                let edge = world.dual.in_dir(&cell, dir);
+                let edge = flow.dual.in_dir(&cell, dir);
                 *flow.velocity.var(&edge) = 0.0;
             }
             return;
@@ -121,21 +172,74 @@ fn divergence_kernel(
         let divergence = 0.0_f32.var();
         let solids = 0_u32.var();
         for dir in GridDirection::iter_all() {
-            let edge = world.dual.in_dir(&cell, dir);
-            if !fluid.solid.expr(&world.in_dir(&cell, dir)) {
+            let edge = flow.dual.in_dir(&cell, dir);
+            if !fluid.solid.expr(&flow.domain.in_dir(&cell, dir)) {
                 *divergence += flow.velocity.expr(&edge) * dir.signf();
                 *solids += 1;
             }
         }
         *solids = max(solids, 1);
-        let pressure = 0.1 * divergence / solids.cast_f32()
-            - 0.1 * max(flow.mass.expr(&cell) - 1.0, 0.0) * 4.0 / solids.cast_f32();
+        let pressure = 1.9 * divergence / solids.cast_f32();
         for dir in GridDirection::iter_all() {
-            let edge = world.dual.in_dir(&cell, dir);
-            if !fluid.solid.expr(&world.in_dir(&cell, dir)) {
+            let edge = flow.dual.in_dir(&cell, dir);
+            if !fluid.solid.expr(&flow.domain.in_dir(&cell, dir)) {
                 *flow.velocity.var(&edge) += -pressure * dir.signf();
             }
         }
+    })
+}
+
+#[kernel]
+fn g2p(
+    device: Res<Device>,
+    world: Res<World>,
+    fluid: Res<FluidFields>,
+    flow: Res<FlowFields>,
+) -> Kernel<fn()> {
+    Kernel::build(&device, &**world, &|cell| {
+        //  TODO: +FLIP
+        if fluid.ty.expr(&cell) == 0 {
+            return;
+        }
+        let x1cell = cell.at((*cell - Vec2::expr(0, 1)) / 3);
+        let x1loff = (*x1cell * 3).cast_f32() + Vec2::new(-0.5, 1.0) - cell.cast_f32();
+        let x2cell = cell.at(*x1cell + Vec2::expr(0, 1));
+        let xvel = flow
+            .velocity
+            .expr(&flow.dual.in_dir(&x1cell, GridDirection::Left))
+            * bifilter(x1loff)
+            + flow
+                .velocity
+                .expr(&flow.dual.in_dir(&x1cell, GridDirection::Right))
+                * bifilter(x1loff + Vec2::expr(3.0, 0.0))
+            + flow
+                .velocity
+                .expr(&flow.dual.in_dir(&x2cell, GridDirection::Left))
+                * bifilter(x1loff + Vec2::expr(0.0, 3.0))
+            + flow
+                .velocity
+                .expr(&flow.dual.in_dir(&x2cell, GridDirection::Right))
+                * bifilter(x1loff + Vec2::expr(3.0, 3.0));
+        let y1cell = cell.at((*cell - Vec2::expr(1, 0)) / 3);
+        let y1doff = (*y1cell * 3).cast_f32() + Vec2::new(1.0, -0.5) - cell.cast_f32();
+        let y2cell = cell.at(*y1cell + Vec2::expr(1, 0));
+        let yvel = flow
+            .velocity
+            .expr(&flow.dual.in_dir(&y1cell, GridDirection::Down))
+            * bifilter(y1doff)
+            + flow
+                .velocity
+                .expr(&flow.dual.in_dir(&y1cell, GridDirection::Up))
+                * bifilter(y1doff + Vec2::expr(0.0, 3.0))
+            + flow
+                .velocity
+                .expr(&flow.dual.in_dir(&y2cell, GridDirection::Down))
+                * bifilter(y1doff + Vec2::expr(3.0, 0.0))
+            + flow
+                .velocity
+                .expr(&flow.dual.in_dir(&y2cell, GridDirection::Up))
+                * bifilter(y1doff + Vec2::expr(3.0, 3.0));
+        *fluid.velocity.var(&cell) = Vec2::expr(xvel, yvel - 0.01);
     })
 }
 
@@ -212,114 +316,6 @@ fn copy_fluid_kernel(
             *fluid.avg_velocity.var(&cell) = Vec2::splat(0.0);
         }
         *fluid.next_ty.var(&cell) = 0;
-    })
-}
-
-#[kernel]
-fn clear_kernel(device: Res<Device>, world: Res<World>, flow: Res<FlowFields>) -> Kernel<fn()> {
-    Kernel::build(&device, &**world, &|cell| {
-        *flow.next_mass.var(&cell) = 0.0;
-        for dir in [GridDirection::Right, GridDirection::Up] {
-            let edge = world.dual.in_dir(&cell, dir);
-            *flow.next_momentum.var(&edge) = 0.0;
-        }
-    })
-}
-
-#[kernel]
-fn copy_flow_kernel(
-    device: Res<Device>,
-    world: Res<World>,
-    flow: Res<FlowFields>,
-    fluid: Res<FluidFields>,
-) -> Kernel<fn()> {
-    Kernel::build(&device, &**world, &|cell| {
-        *flow.mass.var(&cell) = flow.next_mass.expr(&cell)
-            * if fluid.ty.expr(&cell) == 0 {
-                0.99.expr()
-            } else {
-                1.0_f32.expr()
-            };
-        for dir in [GridDirection::Right, GridDirection::Up] {
-            let edge = world.dual.in_dir(&cell, dir);
-            let opposite = world.in_dir(&cell, dir);
-            let weight = max(
-                flow.next_mass.expr(&cell) + flow.next_mass.expr(&opposite),
-                0.0001,
-            );
-            if dir == GridDirection::Up {
-                *flow.velocity.var(&edge) = flow.next_momentum.expr(&edge) / weight - 0.005_f32;
-            } else {
-                *flow.velocity.var(&edge) = flow.next_momentum.expr(&edge) / weight;
-            }
-        }
-    })
-}
-
-#[kernel]
-fn advect_kernel(device: Res<Device>, world: Res<World>, flow: Res<FlowFields>) -> Kernel<fn()> {
-    Kernel::build(&device, &**world, &|cell| {
-        let vel_start_x = flow
-            .velocity
-            .expr(&world.dual.in_dir(&cell, GridDirection::Left));
-        let vel_end_x = flow
-            .velocity
-            .expr(&world.dual.in_dir(&cell, GridDirection::Right));
-        let vel_start_y = flow
-            .velocity
-            .expr(&world.dual.in_dir(&cell, GridDirection::Down));
-        let vel_end_y = flow
-            .velocity
-            .expr(&world.dual.in_dir(&cell, GridDirection::Up));
-
-        let a = Vec2::expr(vel_start_x, vel_start_y);
-        let b = Vec2::expr(vel_end_x, vel_end_y) + 1.0;
-        let start = min(a, b);
-        let end = max(a, b);
-        let density = flow.mass.expr(&cell) * 1.0 / max((end - start).reduce_prod(), 0.00001);
-        if density < 0.0001 {
-            return;
-        }
-        let density = flow.mass.expr(&cell) * 1.0 / max((end - start).reduce_prod(), 0.00001);
-        for i in start.x.floor().cast_i32()..end.x.ceil().cast_i32() {
-            for j in start.y.floor().cast_i32()..end.y.ceil().cast_i32() {
-                let offset = Vec2::expr(i, j);
-                let dst = cell.at(offset + *cell);
-                let offset = offset.cast_f32();
-                if !world.contains(&dst) {
-                    continue;
-                }
-                let intersection = min(end, offset + 1.0) - max(start, offset);
-                let weight = density * intersection.reduce_prod();
-                flow.next_mass.atomic(&dst).fetch_add(weight);
-                // TODO: These break.
-                let dst_x_start_inv = (offset.x - a.x) / (b.x - a.x);
-                let dst_y_start_inv = (offset.y - a.y) / (b.y - a.y);
-                let dst_x_end_inv = (offset.x + 1.0 - a.x) / (b.x - a.x);
-                let dst_y_end_inv = (offset.y + 1.0 - a.y) / (b.y - a.y);
-
-                flow.next_momentum
-                    .atomic(&world.dual.in_dir(&dst, GridDirection::Left))
-                    .fetch_add(
-                        lerp(dst_x_start_inv.clamp(0.0, 1.0), vel_start_x, vel_end_x) * weight,
-                    );
-                flow.next_momentum
-                    .atomic(&world.dual.in_dir(&dst, GridDirection::Right))
-                    .fetch_add(
-                        lerp(dst_x_end_inv.clamp(0.0, 1.0), vel_start_x, vel_end_x) * weight,
-                    );
-                flow.next_momentum
-                    .atomic(&world.dual.in_dir(&dst, GridDirection::Down))
-                    .fetch_add(
-                        lerp(dst_y_start_inv.clamp(0.0, 1.0), vel_start_y, vel_end_y) * weight,
-                    );
-                flow.next_momentum
-                    .atomic(&world.dual.in_dir(&dst, GridDirection::Up))
-                    .fetch_add(
-                        lerp(dst_y_end_inv.clamp(0.0, 1.0), vel_start_y, vel_end_y) * weight,
-                    );
-            }
-        }
     })
 }
 
@@ -415,7 +411,7 @@ fn move_y_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>
 #[kernel(run)]
 fn load_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) -> Kernel<fn()> {
     Kernel::build(&device, &**world, &|cell| {
-        if cell.y < 60 || cell.x < 40 {
+        if cell.y < 60 || cell.x < 39 {
             *fluid.solid.var(&cell) = true;
             // *fluid.mass.var(&cell) = 1.0;
         }
@@ -423,16 +419,11 @@ fn load_kernel(device: Res<Device>, world: Res<World>, fluid: Res<FluidFields>) 
 }
 
 #[kernel]
-fn cursor_kernel(
-    device: Res<Device>,
-    fluid: Res<FluidFields>,
-    flow: Res<FlowFields>,
-) -> Kernel<fn(Vec2<i32>)> {
+fn cursor_kernel(device: Res<Device>, fluid: Res<FluidFields>) -> Kernel<fn(Vec2<i32>)> {
     Kernel::build(&device, &StaticDomain::<2>::new(8, 8), &|cell, cpos| {
         let pos = cpos + cell.cast_i32() - 4;
         let cell = cell.at(pos);
         *fluid.ty.var(&cell) = 1;
-        *flow.mass.var(&cell) = 1.0;
     })
 }
 #[kernel]
@@ -543,16 +534,11 @@ fn update_fluids(
     (
         brownian_motion_kernel.dispatch(&*t),
         mv1,
-        average_velocity_kernel.dispatch(),
-        extract_edges.dispatch(),
+        p2g.dispatch(),
+        divergence_solve.dispatch(),
+        g2p.dispatch(),
         velocity_kernel.dispatch(&*t),
         mv2,
-        advect_kernel.dispatch(),
-        copy_flow_kernel.dispatch(),
-        clear_kernel.dispatch(),
-        divergence_kernel.dispatch(),
-        divergence_kernel.dispatch(),
-        extract_cells.dispatch(),
     )
         .chain()
 }
@@ -565,23 +551,20 @@ impl Plugin for FluidPlugin {
                 InitKernel,
                 (
                     init_cursor_vel_kernel,
-                    init_copy_flow_kernel,
                     init_copy_fluid_kernel,
                     init_wall_kernel,
                     init_move_x_kernel,
                     init_move_y_kernel,
                     init_cursor_kernel,
                     init_load_kernel,
-                    init_extract_edges,
-                    init_extract_cells,
-                    init_advect_kernel,
-                    init_clear_kernel,
                     init_paint_kernel,
-                    init_divergence_kernel,
                     init_premove_kernel,
                     init_brownian_motion_kernel,
                     init_velocity_kernel,
                     init_average_velocity_kernel,
+                    init_divergence_solve,
+                    init_p2g,
+                    init_g2p,
                 ),
             )
             .add_systems(WorldInit, add_init(load))
